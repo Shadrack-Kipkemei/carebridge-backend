@@ -12,6 +12,7 @@ flask-bcrypt = "*"
 flask-jwt-extended = "*"
 psycopg2 = "*"
 flask-cors = "*"
+flask-serializer = "*"
 
 [dev-packages]
 
