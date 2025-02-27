@@ -1,3 +1,4 @@
+import os
 from flask import Flask, jsonify, request, url_for, redirect 
 from flask_mail import Mail, Message 
 from itsdangerous import URLSafeTimedSerializer
