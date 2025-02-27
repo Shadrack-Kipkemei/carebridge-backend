@@ -1,4 +1,6 @@
 import pytest
+import time
+from datetime import datetime  # Import datetime for date handling
 
 @pytest.fixture
 def client():
@@ -8,10 +10,11 @@ def client():
 
 @pytest.fixture
 def auth(client):
-    # Register a new user
+    # Register a new user with a unique username and email
+    unique_email = f'testuser_{int(time.time())}@example.com'  # Unique email
     response = client.post('/auth/register', json={
-        'username': 'testuser',
-        'email': 'test@example.com',
+        'username': f'testuser_{int(time.time())}',  # Unique username
+        'email': unique_email,
         'password': 'testpassword',
         'confirm_password': 'testpassword'
     })
@@ -19,15 +22,18 @@ def auth(client):
 
     # Log in the user
     class Auth:
+        def __init__(self, email):
+            self.email = email
+
         def login(self):
             response = client.post('/login', json={
-                'email': 'test@example.com',
+                'email': self.email,  # Use the unique email
                 'password': 'testpassword'
             })
             assert response.status_code == 200
             self.access_token = response.get_json()['access_token']
 
-    return Auth()
+    return Auth(unique_email)  # Pass the unique email to Auth
 
 def test_create_donation(client, auth):
     auth.login()
@@ -37,7 +43,7 @@ def test_create_donation(client, auth):
         'amount': 100.0,
         'donation_type': 'money',
         'frequency': 'monthly',
-        'next_donation_date': '2023-12-01T00:00:00'
+        'next_donation_date': datetime(2023, 12, 1).isoformat()  # Use a valid datetime string
     }, headers={'Authorization': f'Bearer {auth.access_token}'})
     assert response.status_code == 201
     assert response.get_json() == {"message": "Donation created successfully"}
