@@ -142,7 +142,7 @@ def reset_password(token):
         return jsonify({"error": "User not found"}), 404
 
     # Update and hash password
-    user.password = bcrypt.generate_password_hash(new_password).decode("utf-8")
+    user.password_hash = bcrypt.generate_password_hash(new_password).decode("utf-8")
     db.session.commit()
 
     return jsonify({"message": "Password successfully reset."}), 200
