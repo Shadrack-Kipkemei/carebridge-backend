@@ -54,7 +54,11 @@ class Donation(db.Model):
     amount = db.Column(db.Float, nullable=False)
     donation_type = db.Column(db.String(50), nullable=False)  # money, food, clothes
     status = db.Column(db.String(20), default="pending")  # pending, approved, rejected
+    frequency = db.Column(db.String(20), nullable=True)  # e.g., monthly, weekly
+    next_donation_date = db.Column(db.DateTime, nullable=True)  # Next scheduled donation date
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    frequency = db.Column(db.String(20), nullable=True)  # e.g., monthly, weekly
+    next_donation_date = db.Column(db.DateTime, nullable=True)  # Next scheduled donation date
 
 # Transaction Model (Logs Each Donation Transaction)
 class Transaction(db.Model):
@@ -84,3 +88,26 @@ class Message(db.Model):
     receiver_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     content = db.Column(db.Text, nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+# 8. Notification Model (Logs Notifications for Users)  
+class Notification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    message = db.Column(db.String(255), nullable=False)
+    is_read = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<Notification {self.user_id} - {self.message[:20]}>"
+
+# 9. Feedback & Ratings Model (For Charity Transparency
+class Feedback(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    donor_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    charity_id = db.Column(db.Integer, db.ForeignKey('charity.id'), nullable=False)
+    rating = db.Column(db.Integer, nullable=False)  # 1-5 stars
+    comment = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<Feedback {self.donor_id} -> {self.charity_id} ({self.rating} stars)>"
