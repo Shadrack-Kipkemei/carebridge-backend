@@ -27,10 +27,20 @@ def home():
 @app.route('/auth/register', methods=['POST'])
 def register():
     data = request.get_json()
+    print("Received registration data:", data)  # Debug statement to log incoming data
+
+    # Debug statement to log incoming data
+    print("Received registration data:", data)  # Debug statement to log incoming data
 
     # Validate required fields
+    print("Validating required fields...")  # Debug statement for validation
     if not data.get("username") or not data.get("email") or not data.get("password") or not data.get("confirm_password"):
+        print("Validation failed: All fields are required")  # Debug statement for validation failure
         return jsonify({"error": "All fields are required"}), 400
+
+    # Check if passwords match
+    if data["password"] != data["confirm_password"]:
+        print("Validation failed: Passwords do not match")  # Debug statement for password mismatch
 
     # Check if passwords match
     if data["password"] != data["confirm_password"]:
@@ -39,7 +49,15 @@ def register():
     # Check if email already exists
     existing_user = User.query.filter_by(email=data["email"]).first()
     if existing_user:
+        print("Validation failed: Email already in use")  # Debug statement for existing email
+
+    # Check if email already exists
+    existing_user = User.query.filter_by(email=data["email"]).first()
+    if existing_user:
         return jsonify({"error": "Email already in use"}), 400
+
+    # Create user and hash password
+    print("Creating user...")  # Debug statement for user creation
 
     # Create user and hash password
     user = User(
