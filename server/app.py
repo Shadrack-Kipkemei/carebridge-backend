@@ -24,7 +24,7 @@ def home():
 
 # ------------------- AUTHENTICATION -------------------
 
-@app.route('/register', methods=['POST'])
+@app.route('/auth/register', methods=['POST'])
 def register():
     data = request.get_json()
 

@@ -22,3 +22,4 @@ def test_create_charity(client):
     
     assert response.status_code == 201
     assert response.get_json()["message"] == "Charity created successfully"
+ 
