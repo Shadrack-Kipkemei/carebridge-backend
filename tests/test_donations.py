@@ -43,7 +43,8 @@ def test_create_donation(client, auth):
         'amount': 100.0,
         'donation_type': 'money',
         'frequency': 'monthly',
-        'next_donation_date': datetime(2023, 12, 1).isoformat()  # Use a valid datetime string
+            'next_donation_date': datetime(2023, 12, 1)  # Use a valid datetime object
+
     }, headers={'Authorization': f'Bearer {auth.access_token}'})
     assert response.status_code == 201
     assert response.get_json() == {"message": "Donation created successfully"}
