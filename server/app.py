@@ -1,10 +1,13 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, url_for, redirect 
+from flask_mail import Mail, Message 
+from itsdangerous import URLSafeTimedSerializer
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from server.config import Config
 from server.models import db, User, Charity, Donation, Category
+from flask_cors import CORS 
 
 # Initialize Flask App
 app = Flask(__name__)
@@ -15,6 +18,10 @@ db.init_app(app)
 bcrypt = Bcrypt(app)
 jwt = JWTManager(app)
 migrate = Migrate(app, db)
+mail = Mail(app)
+s = URLSafeTimedSerializer("your_secret_key")  # Token generator
+
+CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}}, supports_credentials=True)
 
 # ------------------- ROUTES -------------------
 
@@ -27,27 +34,28 @@ def home():
 @app.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
+    print("Received data:", data)  # Debugging step
 
-    # Validate required fields
-    if not data.get("username") or not data.get("email") or not data.get("password") or not data.get("confirm_password"):
+    if not data:
+        return jsonify({"error": "No data received"}), 400
+
+    if not all(key in data for key in ["username", "email", "password", "confirmPassword", "role"]):
         return jsonify({"error": "All fields are required"}), 400
 
-    # Check if passwords match
-    if data["password"] != data["confirm_password"]:
+    if data["password"] != data["confirmPassword"]:
         return jsonify({"error": "Passwords do not match"}), 400
 
-    # Check if email already exists
     existing_user = User.query.filter_by(email=data["email"]).first()
     if existing_user:
         return jsonify({"error": "Email already in use"}), 400
 
-    # Create user and hash password
     user = User(
         username=data["username"],
         email=data["email"],
-        role=data.get("role", "donor")  # Default role is donor
+        # password=data["password"],
+        role=data.get("role", "donor")
     )
-    user.set_password(data["password"])  # Hash password
+    user.set_password(data["password"])
     db.session.add(user)
     db.session.commit()
 
@@ -65,6 +73,72 @@ def login():
     access_token = user.generate_token()
     return jsonify({"access_token": access_token, "role": user.role}), 200
 
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    response = jsonify({"message": "User logged out successfully"})
+    response.set_cookie('access_token', '', expires=0)  # Clear JWT token if using cookies
+    return response, 200
+
+
+
+@app.route("/request-password-reset", methods=["POST"])
+def request_password_reset():
+    data = request.get_json()
+    email = data.get("email")
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        return jsonify({"message": "If this email exists, a reset link has been sent."}), 200
+
+    # Generate reset token (expires in 30 minutes)
+    token = s.dumps(email, salt="password-reset")
+    reset_link = url_for("reset_password", token=token, _external=True)
+
+    # Send email
+    msg = Message("Password Reset Request", recipients=[email])
+    msg.body = f"Click the link below to reset your password:\n{reset_link}\nThis link expires in 30 minutes."
+    mail.send(msg)
+
+    return jsonify({"message": "Check your email for reset instructions."}), 200
+
+
+@app.route("/reset-password/<token>", methods=["GET", "POST", "OPTIONS"])
+def reset_password(token):
+    print(f"Received {request.method} request to /reset-password/{token}")  # Debugging
+
+    # Handle OPTIONS preflight request (for CORS)
+    if request.method == "OPTIONS":
+        return "", 204
+
+    # Redirect GET requests to frontend reset page
+    if request.method == "GET":
+        frontend_url = f"http://localhost:3000/reset-password/{token}"  # Update with your frontend URL
+        return redirect(frontend_url)
+
+    # Handle password reset on POST request
+    try:
+        email = s.loads(token, salt="password-reset", max_age=1800)  # Token expires in 30 minutes
+    except:
+        return jsonify({"error": "Invalid or expired token"}), 400
+
+    data = request.get_json()
+    if not data or "password" not in data:
+        return jsonify({"error": "Password is required"}), 400
+
+    new_password = data["password"]
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    # Update and hash password
+    user.password = bcrypt.generate_password_hash(new_password).decode("utf-8")
+    db.session.commit()
+
+    return jsonify({"message": "Password successfully reset."}), 200
+
+    
 @app.route('/protected', methods=['GET'])
 @jwt_required()
 def protected():
