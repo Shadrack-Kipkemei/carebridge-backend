@@ -55,6 +55,8 @@ class Donation(db.Model):
     donation_type = db.Column(db.String(50), nullable=False)  # money, food, clothes
     status = db.Column(db.String(20), default="pending")  # pending, approved, rejected
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    frequency = db.Column(db.String(20), nullable=True)  # e.g., monthly, weekly
+    next_donation_date = db.Column(db.DateTime, nullable=True)  # Next scheduled donation date
 
 # Transaction Model (Logs Each Donation Transaction)
 class Transaction(db.Model):
