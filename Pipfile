@@ -11,8 +11,10 @@ flask-migrate = "*"
 flask-bcrypt = "*"
 flask-jwt-extended = "*"
 psycopg2 = "*"
-flask-cors = "*"
 flask-serializer = "*"
+flask-mail = "*"
+itsdangerous = "*"
+python-dotenv = "*"
 
 [dev-packages]
 
