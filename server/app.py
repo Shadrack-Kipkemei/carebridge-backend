@@ -120,20 +120,6 @@ def get_charity(charity_id):
     return jsonify({"id": charity.id, "name": charity.name, "description": charity.description}), 200
 
 # ------------------- DONATIONS -------------------
-
-@app.route('/donations', methods=['GET'])
-def get_donations():
-    donations = Donation.query.all()
-    return jsonify([
-        {
-            "id": donation.id,
-            "amount": donation.amount,
-            "status": donation.status,
-            "donor_id": donation.donor_id,
-            "charity_id": donation.charity_id
-        } for donation in donations
-    ]), 200
-
 @app.route('/donations', methods=['POST'])
 @jwt_required()
 def create_donation():
@@ -149,14 +135,18 @@ def create_donation():
         category_id=data["category_id"],
         amount=data["amount"],
         donation_type=data["donation_type"],
-        status="pending"
+        status="pending",
+        frequency=data.get("frequency"),  # Add frequency for recurring donations
+        next_donation_date=data.get("next_donation_date")  # Add next donation date
     )
+
     db.session.add(donation)
     db.session.commit()
     return jsonify({"message": "Donation created successfully"}), 201
 
 @app.route('/donations/<int:donation_id>', methods=['GET'])
 def get_donation(donation_id):
+    # Logic to handle retrieval of donation details
     donation = Donation.query.get(donation_id)
     if not donation:
         return jsonify({"error": "Donation not found"}), 404

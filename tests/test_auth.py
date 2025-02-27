@@ -66,7 +66,7 @@ def test_login(client):
     })
 
     # Then, attempt login
-    response = client.post("/auth/login", json={
+    response = client.post("/login", json={
         "email": "test@example.com",
         "password": "password123"
     })
@@ -91,11 +91,11 @@ def test_protected_route_with_authentication_and_invalid_token(client):
         "confirm_password": "password123"
     })
 
-    login_res = client.post("/auth/login", json={
+    login_res = client.post("/login", json={
         "email": "test@example.com",
         "password": "password123"
     })
-    
+
     access_token = "invalid_token"  # Simulate an invalid token
 
     response = client.get("/protected", headers={"Authorization": f"Bearer {access_token}"})
