@@ -2,18 +2,22 @@ import pytest
 from server.models import User, db
 
 @pytest.fixture
+@pytest.fixture
 def test_users(client):
     """Fixture to create test users"""
+    db.session.query(User).delete()  # Clear users before adding new ones
+    db.session.commit()
+
     user1 = User(username="user1", email="user1@example.com", role="donor")
     user1.set_password("password123")
-    
+
     user2 = User(username="user2", email="user2@example.com", role="charity_owner")
     user2.set_password("password123")
 
     db.session.add_all([user1, user2])
     db.session.commit()
 
-    return [user1, user2]
+    
 
 def test_get_users(client, test_users):
     """Test fetching all users"""
