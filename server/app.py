@@ -7,7 +7,7 @@ from server.config import Config
 from server.models import db, User, Charity, Donation, Category
 
 # Initialize Flask App
-app = Flask(__name__)
+app = Flask(__name__, instance_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'instance'))
 app.config.from_object(Config)
 
 # Initialize Extensions
@@ -24,13 +24,23 @@ def home():
 
 # ------------------- AUTHENTICATION -------------------
 
-@app.route('/register', methods=['POST'])
+@app.route('/auth/register', methods=['POST'])
 def register():
     data = request.get_json()
+    print("Received registration data:", data)  # Debug statement to log incoming data
+
+    # Debug statement to log incoming data
+    print("Received registration data:", data)  # Debug statement to log incoming data
 
     # Validate required fields
+    print("Validating required fields...")  # Debug statement for validation
     if not data.get("username") or not data.get("email") or not data.get("password") or not data.get("confirm_password"):
+        print("Validation failed: All fields are required")  # Debug statement for validation failure
         return jsonify({"error": "All fields are required"}), 400
+
+    # Check if passwords match
+    if data["password"] != data["confirm_password"]:
+        print("Validation failed: Passwords do not match")  # Debug statement for password mismatch
 
     # Check if passwords match
     if data["password"] != data["confirm_password"]:
@@ -39,7 +49,15 @@ def register():
     # Check if email already exists
     existing_user = User.query.filter_by(email=data["email"]).first()
     if existing_user:
+        print("Validation failed: Email already in use")  # Debug statement for existing email
+
+    # Check if email already exists
+    existing_user = User.query.filter_by(email=data["email"]).first()
+    if existing_user:
         return jsonify({"error": "Email already in use"}), 400
+
+    # Create user and hash password
+    print("Creating user...")  # Debug statement for user creation
 
     # Create user and hash password
     user = User(
@@ -52,7 +70,6 @@ def register():
     db.session.commit()
 
     return jsonify({"message": "User registered successfully"}), 201
-
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -121,20 +138,6 @@ def get_charity(charity_id):
     return jsonify({"id": charity.id, "name": charity.name, "description": charity.description}), 200
 
 # ------------------- DONATIONS -------------------
-
-@app.route('/donations', methods=['GET'])
-def get_donations():
-    donations = Donation.query.all()
-    return jsonify([
-        {
-            "id": donation.id,
-            "amount": donation.amount,
-            "status": donation.status,
-            "donor_id": donation.donor_id,
-            "charity_id": donation.charity_id
-        } for donation in donations
-    ]), 200
-
 @app.route('/donations', methods=['POST'])
 @jwt_required()
 def create_donation():
@@ -150,14 +153,50 @@ def create_donation():
         category_id=data["category_id"],
         amount=data["amount"],
         donation_type=data["donation_type"],
-        status="pending"
+        status="pending",
+        frequency=data.get("frequency"),  # Add frequency for recurring donations
+        next_donation_date=data.get("next_donation_date")  # Add next donation date
     )
+
+    db.session.add(donation)
+    db.session.commit()
+    return jsonify({"message": "Donation created successfully"}), 201
+    data = request.get_json()
+    current_user_id = get_jwt_identity()
+
+    if not data.get("charity_id") or not data.get("category_id") or not data.get("amount") or not data.get("donation_type"):
+        return jsonify({"error": "All fields are required"}), 400
+
+    donation = Donation(
+        donor_id=current_user_id,
+        charity_id=data["charity_id"],
+        category_id=data["category_id"],
+        amount=data["amount"],
+        donation_type=data["donation_type"],
+        status="pending",
+        frequency=data.get("frequency"),  # Add frequency for recurring donations
+        next_donation_date=data.get("next_donation_date")  # Add next donation date
+    )
+
     db.session.add(donation)
     db.session.commit()
     return jsonify({"message": "Donation created successfully"}), 201
 
 @app.route('/donations/<int:donation_id>', methods=['GET'])
 def get_donation(donation_id):
+    # Logic to handle retrieval of donation details
+    donation = Donation.query.get(donation_id)
+    if not donation:
+        return jsonify({"error": "Donation not found"}), 404
+    return jsonify({
+        "id": donation.id,
+        "amount": donation.amount,
+        "status": donation.status,
+        "donor_id": donation.donor_id,
+        "charity_id": donation.charity_id
+    }), 200
+def get_donation(donation_id):
+    # Logic to handle retrieval of donation details
     donation = Donation.query.get(donation_id)
     if not donation:
         return jsonify({"error": "Donation not found"}), 404
