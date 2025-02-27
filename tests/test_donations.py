@@ -1,56 +1,84 @@
 import pytest
-import time
-from datetime import datetime  # Import datetime for date handling
+from flask import json
+from server.app import app
+from server.models import db
+from server.models import User, Charity, Donation
 
 @pytest.fixture
 def client():
-    from server.app import app
+    app.config['TESTING'] = True
     with app.test_client() as client:
+        with app.app_context():
+            db.create_all()
         yield client
+        with app.app_context():
+            db.drop_all()
 
-@pytest.fixture
-def auth(client):
-    # Register a new user with a unique username and email
-    unique_email = f'testuser_{int(time.time())}@example.com'  # Unique email
-    response = client.post('/auth/register', json={
-        'username': f'testuser_{int(time.time())}',  # Unique username
-        'email': unique_email,
-        'password': 'testpassword',
-        'confirm_password': 'testpassword'
-    })
+def test_create_donation(client):
+    # Create a test user
+    with app.app_context():
+                                                            user = User(username="testuser", email="testuser@example.com", role="donor")
+
+
+
+    user.set_password("testpass")
+    db.session.add(user)
+    db.session.commit()
+
+    # Log in to get the access token
+    response = client.post('/login', json={"email": "testuser@example.com", "password": "testpass"})
+    access_token = response.json['access_token']
+
+    # Create a charity for the donation
+    charity = Charity(name="Test Charity", description="A charity for testing.")
+    db.session.add(charity)
+    db.session.commit()
+
+    # Create a donation
+    donation_data = {
+        "charity_id": charity.id,
+        "category_id": 1,  # Assuming category with ID 1 exists
+        "amount": 100.0,
+        "donation_type": "money",
+        "frequency": "monthly",
+        "next_donation_date": "2023-12-01T00:00:00"
+    }
+    response = client.post('/donations', json=donation_data, headers={"Authorization": f"Bearer {access_token}"})
     assert response.status_code == 201
+    assert response.json['message'] == "Donation created successfully"
 
-    # Log in the user
-    class Auth:
-        def __init__(self, email):
-            self.email = email
+def test_get_user_donations(client):
+    # Create a test user and donation
+    with app.app_context():
+                                                            user = User(username="testuser2", email="testuser2@example.com", role="donor")
 
-        def login(self):
-            response = client.post('/login', json={
-                'email': self.email,  # Use the unique email
-                'password': 'testpassword'
-            })
-            assert response.status_code == 200
-            self.access_token = response.get_json()['access_token']
 
-    return Auth(unique_email)  # Pass the unique email to Auth
 
-def test_create_donation(client, auth):
-    auth.login()
-    response = client.post('/donations', json={
-        'charity_id': 1,
-        'category_id': 1,
-        'amount': 100.0,
-        'donation_type': 'money',
-        'frequency': 'monthly',
-            'next_donation_date': datetime(2023, 12, 1)  # Use a valid datetime object
+    user.set_password("testpass2")
+    db.session.add(user)
+    db.session.commit()
 
-    }, headers={'Authorization': f'Bearer {auth.access_token}'})
-    assert response.status_code == 201
-    assert response.get_json() == {"message": "Donation created successfully"}
+    # Log in to get the access token
+    response = client.post('/login', json={"email": "testuser2@example.com", "password": "testpass2"})
+    access_token = response.json['access_token']
 
-def test_get_donation(client, auth):
-    auth.login()
-    response = client.get('/donations/1', headers={'Authorization': f'Bearer {auth.access_token}'})
+    # Create a charity for the donation
+    charity = Charity(name="Test Charity 2", description="Another charity for testing.")
+    db.session.add(charity)
+    db.session.commit()
+
+    # Create a donation
+    donation_data = {
+        "charity_id": charity.id,
+        "category_id": 1,  # Assuming category with ID 1 exists
+        "amount": 50.0,
+        "donation_type": "money",
+        "frequency": "weekly",
+        "next_donation_date": "2023-12-01T00:00:00"
+    }
+    client.post('/donations', json=donation_data, headers={"Authorization": f"Bearer {access_token}"})
+
+    # Retrieve user donations
+    response = client.get('/donations/user', headers={"Authorization": f"Bearer {access_token}"})
     assert response.status_code == 200
-    assert 'id' in response.get_json()
+    assert len(response.json) == 1  # Should return one donation
