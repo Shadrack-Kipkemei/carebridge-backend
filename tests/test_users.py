@@ -2,23 +2,28 @@ import pytest
 from server.models import User, db
 
 @pytest.fixture
-def test_users(client):
+def test_users(app):
     """Fixture to create test users"""
-    db.session.query(User).delete()  # Clear users before adding new ones
-    db.session.commit()
+    with app.app_context():
+        # Clear users before adding new ones
+        db.session.query(User).delete()
+        db.session.commit()
 
-    user1 = User(username="user1", email="user1@example.com", role="donor")
-    user1.set_password("password123")
+        user1 = User(username="user1", email="user1@example.com", role="donor")
+        user1.set_password("password123")
 
-    user2 = User(username="user2", email="user2@example.com", role="charity_owner")
-    user2.set_password("password123")
+        user2 = User(username="user2", email="user2@example.com", role="charity")
+        user2.set_password("password123")
 
-    db.session.add_all([user1, user2])
-    db.session.commit()
+        db.session.add_all([user1, user2])
+        db.session.commit()
+
+        # Return the users for use in tests
+        return [user1, user2]
 
 def test_get_users(client, test_users):
     """Test fetching all users"""
-    response = client.get("/users")
+    response = client.get("/api/users")
     data = response.get_json()
 
     assert response.status_code == 200
@@ -26,12 +31,13 @@ def test_get_users(client, test_users):
     assert len(data) == 2  # Ensure it returns two users
     assert all("id" in user and "username" in user and "email" in user and "role" in user for user in data)
 
-def test_get_users_empty(client):
+def test_get_users_empty(app, client):
     """Test fetching users when the database is empty"""
-    db.session.query(User).delete()  # Clear users
-    db.session.commit()
+    with app.app_context():
+        db.session.query(User).delete()  # Clear users
+        db.session.commit()
 
-    response = client.get("/users")
+    response = client.get("/api/users")
     data = response.get_json()
 
     assert response.status_code == 200
@@ -39,16 +45,18 @@ def test_get_users_empty(client):
 
 def test_get_user_by_id(client, test_users):
     """Test fetching a specific user by ID"""
-    response = client.get("/users/1")  # Fetch user with ID 1
+    user_id = test_users[0].id
+    response = client.get(f"/api/users/{user_id}")
     data = response.get_json()
 
     assert response.status_code == 200  # Should return the user data
-    assert data["id"] == 1
+    assert data["id"] == user_id
     assert data["username"] == "user1"
     assert data["email"] == "user1@example.com"
 
 def test_get_non_existent_user(client):
     """Test fetching a user that does not exist"""
-    response = client.get("/users/999")  # Fetch user with a non-existent ID
+    response = client.get("/api/users/999")  # Fetch user with a non-existent ID
     assert response.status_code == 404  # Should return Not Found
-    assert "error" in response.get_json()  # Ensure error message is present
+    data = response.get_json()
+    assert "error" in data  # Ensure error message is present
