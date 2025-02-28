@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
-from datetime import datetime
+from datetime import datetime, UTC
 from server import db
 from server.models import (
     User, Charity, Donation, Category, Transaction,
@@ -81,7 +81,7 @@ def get_charities():
 def create_charity():
     data = request.get_json()
     current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
+    user = db.session.get(User, current_user_id)
 
     if user.role not in ['admin', 'charity']:
         return jsonify({"error": "Unauthorized to create charity"}), 403
@@ -131,7 +131,7 @@ def create_recurring_donation():
         payment_method=data["payment_method"],
         payment_token=data.get("payment_token"),
         is_anonymous=data.get("is_anonymous", False),
-        start_date=datetime.utcnow(),
+        start_date=datetime.now(UTC),
         end_date=data.get("end_date"),
         beneficiary_id=data.get("beneficiary_id")
     )
@@ -163,7 +163,7 @@ def get_upcoming_donations():
         Donation.donor_id == current_user_id,
         Donation.is_recurring == True,
         Donation.next_donation_date != None,
-        Donation.next_donation_date > datetime.utcnow()
+        Donation.next_donation_date > datetime.now(UTC)
     ).order_by(Donation.next_donation_date).all()
 
     return jsonify([{
@@ -252,7 +252,7 @@ def get_users():
 
 @api.route('/api/users/<int:user_id>', methods=['GET'])
 def get_user(user_id):
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if not user:
         return jsonify({"error": "User not found"}), 404
     
