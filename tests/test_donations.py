@@ -2,10 +2,15 @@ import pytest
 from server.models import Charity, Donation, db
 
 @pytest.fixture
-def test_charity(app):
+def test_charity(app, test_user):
     """Fixture to create a test charity"""
     with app.app_context():
-        charity = Charity(name="Test Charity", description="A charity for testing.")
+        charity = Charity(
+            name="Test Charity",
+            description="A charity for testing",
+            owner_id=test_user.id,
+            is_approved=True
+        )
         db.session.add(charity)
         db.session.commit()
         return charity

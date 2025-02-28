@@ -43,16 +43,15 @@ def test_get_users_empty(app, client):
     assert response.status_code == 200
     assert data == []  # Should return an empty list if no users exist
 
-def test_get_user_by_id(client, test_users):
+def test_get_user_by_id(client, test_user):
     """Test fetching a specific user by ID"""
-    user_id = test_users[0].id
-    response = client.get(f"/api/users/{user_id}")
+    response = client.get(f"/api/users/{test_user.id}")
     data = response.get_json()
 
     assert response.status_code == 200  # Should return the user data
-    assert data["id"] == user_id
-    assert data["username"] == "user1"
-    assert data["email"] == "user1@example.com"
+    assert data["id"] == test_user.id
+    assert data["username"] == "testuser"
+    assert data["email"] == "test@example.com"
 
 def test_get_non_existent_user(client):
     """Test fetching a user that does not exist"""

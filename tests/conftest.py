@@ -1,6 +1,6 @@
 import pytest
 from server import create_app, db
-from server.models import User
+from server.models import User, NotificationPreference
 
 class TestConfig:
     TESTING = True
@@ -44,13 +44,9 @@ def test_user(app, client):
         db.session.add(preferences)
         db.session.commit()
         
-        db.session.refresh(user)  # Refresh to ensure all attributes are loaded
+        # Keep the user in the session
+        db.session.refresh(user)
         yield user
-        
-        # Clean up
-        db.session.execute('DELETE FROM notification_preference')
-        db.session.execute('DELETE FROM user')
-        db.session.commit()
 
 @pytest.fixture(scope='function')
 def auth_headers(app, test_user):
@@ -58,10 +54,9 @@ def auth_headers(app, test_user):
     from flask_jwt_extended import create_access_token
     
     with app.app_context():
-        # Ensure user is attached to session
-        db.session.add(test_user)
-        db.session.refresh(test_user)
-        access_token = create_access_token(identity=test_user.id)
+        # Get a fresh copy of the user
+        user = db.session.merge(test_user)
+        access_token = create_access_token(identity=str(user.id))
         headers = {
             'Authorization': f'Bearer {access_token}',
             'Content-Type': 'application/json'
