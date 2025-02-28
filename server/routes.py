@@ -1,30 +1,21 @@
-from flask import jsonify, request
+from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
-from server import flask_app as app, db
+from datetime import datetime
+from server import db
 from server.models import (
     User, Charity, Donation, Category, Transaction,
     Story, Beneficiary, NotificationPreference, Notification
 )
-from datetime import datetime
-def create_app(config_class=Config):
-    app = Flask(__name__)
-    app.config.from_object(config_class)
 
-    # Initialize Flask extensions
-    db.init_app(app)
-    bcrypt.init_app(app)
-    migrate.init_app(app, db)
-    jwt.init_app(app)
-    mail.init_app(app)
-    cors.init_app(app, resources={r"/*": {"origins": "http://localhost:3000"}}, supports_credentials=True)
+api = Blueprint('api', __name__)
 
 # ------------------- HOME -------------------
-@app.route('/')
+@api.route('/')
 def home():
     return jsonify({"message": "Welcome to CareBridge API"}), 200
 
 # ------------------- AUTHENTICATION -------------------
-@app.route('/api/auth/register', methods=['POST'])
+@api.route('/api/auth/register', methods=['POST'])
 def register():
     data = request.get_json()
 
@@ -56,7 +47,7 @@ def register():
 
     return jsonify({"message": "User registered successfully"}), 201
 
-@app.route('/api/auth/login', methods=['POST'])
+@api.route('/api/auth/login', methods=['POST'])
 def login():
     data = request.get_json()
     user = User.query.filter_by(email=data["email"]).first()
@@ -73,7 +64,7 @@ def login():
     }), 200
 
 # ------------------- CHARITIES -------------------
-@app.route('/api/charities', methods=['GET'])
+@api.route('/api/charities', methods=['GET'])
 def get_charities():
     charities = Charity.query.filter_by(is_approved=True).all()
     return jsonify([{
@@ -84,7 +75,7 @@ def get_charities():
         "created_at": c.created_at.isoformat()
     } for c in charities]), 200
 
-@app.route('/api/charities', methods=['POST'])
+@api.route('/api/charities', methods=['POST'])
 @jwt_required()
 def create_charity():
     data = request.get_json()
@@ -113,7 +104,7 @@ def create_charity():
     }), 201
 
 # ------------------- DONATIONS -------------------
-@app.route('/api/donations/recurring', methods=['POST'])
+@api.route('/api/donations/recurring', methods=['POST'])
 @jwt_required()
 def create_recurring_donation():
     data = request.get_json()
@@ -162,7 +153,7 @@ def create_recurring_donation():
         "next_donation_date": donation.next_donation_date.isoformat() if donation.next_donation_date else None
     }), 201
 
-@app.route('/api/donations/upcoming', methods=['GET'])
+@api.route('/api/donations/upcoming', methods=['GET'])
 @jwt_required()
 def get_upcoming_donations():
     current_user_id = get_jwt_identity()
@@ -183,7 +174,7 @@ def get_upcoming_donations():
     } for d in upcoming_donations]), 200
 
 # ------------------- STORIES -------------------
-@app.route('/api/charities/<int:charity_id>/stories', methods=['POST'])
+@api.route('/api/charities/<int:charity_id>/stories', methods=['POST'])
 @jwt_required()
 def create_story(charity_id):
     current_user_id = get_jwt_identity()
@@ -208,7 +199,7 @@ def create_story(charity_id):
 
     return jsonify({"message": "Story created successfully", "id": story.id}), 201
 
-@app.route('/api/charities/<int:charity_id>/stories', methods=['GET'])
+@api.route('/api/charities/<int:charity_id>/stories', methods=['GET'])
 def get_charity_stories(charity_id):
     stories = Story.query.filter_by(charity_id=charity_id).order_by(Story.created_at.desc()).all()
     
@@ -221,7 +212,7 @@ def get_charity_stories(charity_id):
     } for s in stories]), 200
 
 # ------------------- BENEFICIARIES -------------------
-@app.route('/api/charities/<int:charity_id>/beneficiaries', methods=['POST'])
+@api.route('/api/charities/<int:charity_id>/beneficiaries', methods=['POST'])
 @jwt_required()
 def add_beneficiary(charity_id):
     current_user_id = get_jwt_identity()
@@ -248,7 +239,7 @@ def add_beneficiary(charity_id):
     return jsonify({"message": "Beneficiary added successfully", "id": beneficiary.id}), 201
 
 # ------------------- NOTIFICATION PREFERENCES -------------------
-@app.route('/api/users/notification-preferences', methods=['GET'])
+@api.route('/api/users/notification-preferences', methods=['GET'])
 @jwt_required()
 def get_notification_preferences():
     current_user_id = get_jwt_identity()
@@ -266,7 +257,7 @@ def get_notification_preferences():
         "story_updates": preferences.story_updates
     }), 200
 
-@app.route('/api/users/notification-preferences', methods=['PUT'])
+@api.route('/api/users/notification-preferences', methods=['PUT'])
 @jwt_required()
 def update_notification_preferences():
     current_user_id = get_jwt_identity()
@@ -294,9 +285,3 @@ def update_notification_preferences():
             "story_updates": preferences.story_updates
         }
     }), 200
-
-
-from server.app import flask_app as app
-
-if __name__ == "__main__":
-    app.run(debug=True)
