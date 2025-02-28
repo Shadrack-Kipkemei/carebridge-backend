@@ -8,6 +8,8 @@ from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from server.config import Config
 from server.models import db, User, Charity, Donation, Category
+from flask_jwt_extended import create_access_token
+from datetime import datetime
 from flask_cors import CORS 
 
 # Initialize Flask App
@@ -71,6 +73,7 @@ def register():
 
     return jsonify({"message": "User registered successfully"}), 201
 
+
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
@@ -79,8 +82,14 @@ def login():
     if not user or not user.check_password(data["password"]):
         return jsonify({"error": "Invalid email or password"}), 401
 
-    access_token = user.generate_token()
-    return jsonify({"access_token": access_token, "role": user.role}), 200
+    # Use create_access_token instead of generate_token()
+    access_token = create_access_token(identity=str(user.id))
+    return jsonify({
+        "access_token": access_token,
+        "role": user.role,
+        "user_id": user.id,
+        "username": user.username
+    }), 200
 
 
 @app.route('/logout', methods=['POST'])
@@ -212,18 +221,28 @@ def create_donation():
     data = request.get_json()
     current_user_id = get_jwt_identity()
 
-    if not all(key in data for key in ["charity_id", "category_id", "amount", "donation_type"]):
+    # Ensure all required fields are present
+    required_fields = ["charity_id", "category_id", "amount", "donation_type", "beneficiary_id"]
+    if not all(key in data for key in required_fields):
         return jsonify({"error": "All fields are required"}), 400
+
+    # Convert date fields if they exist
+    next_donation_date = (
+        datetime.strptime(data["next_donation_date"], "%Y-%m-%d") 
+        if "next_donation_date" in data and data["next_donation_date"] 
+        else None
+    )
 
     donation = Donation(
         donor_id=current_user_id,
         charity_id=data["charity_id"],
         category_id=data["category_id"],
+        beneficiary_id=data["beneficiary_id"],  # Added beneficiary_id
         amount=data["amount"],
         donation_type=data["donation_type"],
         status="pending",
-        frequency=data.get("frequency"),  # Optional for recurring donations
-        next_donation_date=data.get("next_donation_date")  # Optional next donation date
+        frequency=data.get("frequency"),
+        next_donation_date=next_donation_date
     )
 
     db.session.add(donation)
@@ -236,6 +255,7 @@ def create_donation():
             "amount": donation.amount,
             "donor_id": donation.donor_id,
             "charity_id": donation.charity_id,
+            "beneficiary_id": donation.beneficiary_id,  # Return beneficiary_id
             "status": donation.status
         }
     }), 201
@@ -254,7 +274,8 @@ def get_donation(donation_id):
         "amount": donation.amount,
         "status": donation.status,
         "donor_id": donation.donor_id,
-        "charity_id": donation.charity_id
+        "charity_id": donation.charity_id,
+        "beneficiary_id": donation.beneficiary_id  # Include beneficiary_id in response
     }), 200
 
 
