@@ -372,4 +372,4 @@ def reject_donation(donation_id):
 # ------------------- RUN APP -------------------
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    flask_app.run(debug=True)
