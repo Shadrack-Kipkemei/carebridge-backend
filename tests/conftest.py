@@ -9,36 +9,25 @@ class TestConfig:
     WTF_CSRF_ENABLED = False
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-@pytest.fixture(scope='session')
+@pytest.fixture(scope='function')
 def app():
     """Create and configure a test application."""
     app = create_app(TestConfig)
     
-    # Create application context
     with app.app_context():
-        # Initialize database
-        db.init_app(app)
-        # Create all tables
-        db.create_all()
+        db.drop_all()  # Drop any existing tables
+        db.create_all()  # Create fresh tables
         yield app
-        # Clean up after test
         db.session.remove()
-        db.drop_all()
+        db.drop_all()  # Clean up after test
 
 @pytest.fixture(scope='function')
 def client(app):
     """Create a test client."""
-    with app.test_client() as client:
-        with app.app_context():
-            # Clear all tables before each test
-            meta = db.metadata
-            for table in reversed(meta.sorted_tables):
-                db.session.execute(table.delete())
-            db.session.commit()
-            yield client
+    return app.test_client()
 
 @pytest.fixture(scope='function')
-def test_user(app):
+def test_user(app, client):
     """Create a test user."""
     with app.app_context():
         user = User(
@@ -49,7 +38,19 @@ def test_user(app):
         user.set_password("password123")
         db.session.add(user)
         db.session.commit()
-        return user
+        
+        # Create default notification preferences
+        preferences = NotificationPreference(user_id=user.id)
+        db.session.add(preferences)
+        db.session.commit()
+        
+        db.session.refresh(user)  # Refresh to ensure all attributes are loaded
+        yield user
+        
+        # Clean up
+        db.session.execute('DELETE FROM notification_preference')
+        db.session.execute('DELETE FROM user')
+        db.session.commit()
 
 @pytest.fixture(scope='function')
 def auth_headers(app, test_user):
@@ -57,6 +58,9 @@ def auth_headers(app, test_user):
     from flask_jwt_extended import create_access_token
     
     with app.app_context():
+        # Ensure user is attached to session
+        db.session.add(test_user)
+        db.session.refresh(test_user)
         access_token = create_access_token(identity=test_user.id)
         headers = {
             'Authorization': f'Bearer {access_token}',

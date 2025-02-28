@@ -3,17 +3,16 @@ from server.models import User
 
 def test_register(app, client):
     """Test user registration"""
-    with app.app_context():
-        response = client.post("/api/auth/register", json={
-            "username": "newuser",
-            "email": "newuser@example.com",
-            "password": "password123",
-            "confirmPassword": "password123",
-            "role": "donor"
-        })
-        data = response.get_json()
-        assert response.status_code == 201
-        assert data["message"] == "User registered successfully"
+    response = client.post("/api/auth/register", json={
+        "username": "newuser",
+        "email": "newuser@example.com",
+        "password": "password123",
+        "confirmPassword": "password123",
+        "role": "donor"
+    })
+    data = response.get_json()
+    assert response.status_code == 201
+    assert data["message"] == "User registered successfully"
 
 def test_register_with_missing_fields(app, client):
     """Test user registration with missing fields"""

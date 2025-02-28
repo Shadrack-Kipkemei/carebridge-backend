@@ -1,12 +1,7 @@
 from datetime import datetime, timedelta
 from flask import jsonify, request
-from flask_sqlalchemy import SQLAlchemy
-from flask_bcrypt import Bcrypt
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
-
-# Initialize extensions
-db = SQLAlchemy()
-bcrypt = Bcrypt()
+from server import db, bcrypt
 
 # User Model
 class User(db.Model):
@@ -19,8 +14,9 @@ class User(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    donations = db.relationship('Donation', backref='donor', lazy=True)
-    charities = db.relationship('Charity', backref='owner', lazy=True)
+    donations = db.relationship('Donation', backref='donor', lazy=True, cascade='all, delete-orphan')
+    charities = db.relationship('Charity', backref='owner', lazy=True, cascade='all, delete-orphan')
+    notification_preferences = db.relationship('NotificationPreference', backref='user', lazy=True, cascade='all, delete-orphan', uselist=False)
 
     def set_password(self, password):
         self.password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
@@ -51,10 +47,11 @@ class User(db.Model):
         )
         user.set_password(data["password"])
         
-        # Create default notification preferences
-        preferences = NotificationPreference(user_id=user.id)
-        
         db.session.add(user)
+        db.session.commit()
+        
+        # Create default notification preferences after user is committed
+        preferences = NotificationPreference(user_id=user.id)
         db.session.add(preferences)
         db.session.commit()
 
@@ -344,8 +341,6 @@ class NotificationPreference(db.Model):
     story_updates = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    user = db.relationship('User', backref='notification_preferences')
 
     @classmethod
     @jwt_required()

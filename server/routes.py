@@ -38,10 +38,11 @@ def register():
     )
     user.set_password(data["password"])
     
-    # Create default notification preferences
-    preferences = NotificationPreference(user_id=user.id)
-    
     db.session.add(user)
+    db.session.commit()
+    
+    # Create default notification preferences after user is committed
+    preferences = NotificationPreference(user_id=user.id)
     db.session.add(preferences)
     db.session.commit()
 
@@ -237,6 +238,30 @@ def add_beneficiary(charity_id):
     db.session.commit()
 
     return jsonify({"message": "Beneficiary added successfully", "id": beneficiary.id}), 201
+
+# ------------------- USERS -------------------
+@api.route('/api/users', methods=['GET'])
+def get_users():
+    users = User.query.all()
+    return jsonify([{
+        "id": u.id,
+        "username": u.username,
+        "email": u.email,
+        "role": u.role
+    } for u in users]), 200
+
+@api.route('/api/users/<int:user_id>', methods=['GET'])
+def get_user(user_id):
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    
+    return jsonify({
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "role": user.role
+    }), 200
 
 # ------------------- NOTIFICATION PREFERENCES -------------------
 @api.route('/api/users/notification-preferences', methods=['GET'])

@@ -33,11 +33,15 @@ def create_app(config_class=None):
     mail.init_app(app)
     cors.init_app(app, resources={r"/*": {"origins": "http://localhost:3000"}}, supports_credentials=True)
 
-    # Import routes after extensions are initialized
-    from server import routes
-    
-    # Register blueprints
-    app.register_blueprint(routes.api)
+    with app.app_context():
+        # Import routes after extensions are initialized
+        from server import routes
+        
+        # Register blueprints
+        app.register_blueprint(routes.api)
+
+        # Create database tables
+        db.create_all()
 
     return app
 
