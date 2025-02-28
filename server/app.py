@@ -203,14 +203,16 @@ def get_charity(charity_id):
         return jsonify({"error": "Charity not found"}), 404
     return jsonify({"id": charity.id, "name": charity.name, "description": charity.description}), 200
 
-# ------------------- DONATIONS -------------------
+# ------------------- DONATIONS CRUD -------------------
+
 @app.route('/donations', methods=['POST'])
 @jwt_required()
 def create_donation():
+    """Create a new donation"""
     data = request.get_json()
     current_user_id = get_jwt_identity()
 
-    if not data.get("charity_id") or not data.get("category_id") or not data.get("amount") or not data.get("donation_type"):
+    if not all(key in data for key in ["charity_id", "category_id", "amount", "donation_type"]):
         return jsonify({"error": "All fields are required"}), 400
 
     donation = Donation(
@@ -220,40 +222,33 @@ def create_donation():
         amount=data["amount"],
         donation_type=data["donation_type"],
         status="pending",
-        frequency=data.get("frequency"),  # Add frequency for recurring donations
-        next_donation_date=data.get("next_donation_date")  # Add next donation date
+        frequency=data.get("frequency"),  # Optional for recurring donations
+        next_donation_date=data.get("next_donation_date")  # Optional next donation date
     )
 
     db.session.add(donation)
     db.session.commit()
-    return jsonify({"message": "Donation created successfully"}), 201
-    data = request.get_json()
-    current_user_id = get_jwt_identity()
 
-    if not data.get("charity_id") or not data.get("category_id") or not data.get("amount") or not data.get("donation_type"):
-        return jsonify({"error": "All fields are required"}), 400
+    return jsonify({
+        "message": "Donation created successfully",
+        "donation": {
+            "id": donation.id,
+            "amount": donation.amount,
+            "donor_id": donation.donor_id,
+            "charity_id": donation.charity_id,
+            "status": donation.status
+        }
+    }), 201
 
-    donation = Donation(
-        donor_id=current_user_id,
-        charity_id=data["charity_id"],
-        category_id=data["category_id"],
-        amount=data["amount"],
-        donation_type=data["donation_type"],
-        status="pending",
-        frequency=data.get("frequency"),  # Add frequency for recurring donations
-        next_donation_date=data.get("next_donation_date")  # Add next donation date
-    )
-
-    db.session.add(donation)
-    db.session.commit()
-    return jsonify({"message": "Donation created successfully"}), 201
 
 @app.route('/donations/<int:donation_id>', methods=['GET'])
+@jwt_required()
 def get_donation(donation_id):
-    # Logic to handle retrieval of donation details
+    """Retrieve a single donation by ID"""
     donation = Donation.query.get(donation_id)
     if not donation:
         return jsonify({"error": "Donation not found"}), 404
+
     return jsonify({
         "id": donation.id,
         "amount": donation.amount,
@@ -261,18 +256,61 @@ def get_donation(donation_id):
         "donor_id": donation.donor_id,
         "charity_id": donation.charity_id
     }), 200
-def get_donation(donation_id):
-    # Logic to handle retrieval of donation details
+
+
+@app.route('/donations', methods=['GET'])
+@jwt_required()
+def get_all_donations():
+    """Retrieve all donations"""
+    donations = Donation.query.all()
+    return jsonify([
+        {
+            "id": donation.id,
+            "amount": donation.amount,
+            "status": donation.status,
+            "donor_id": donation.donor_id,
+            "charity_id": donation.charity_id
+        }
+        for donation in donations
+    ]), 200
+
+
+@app.route('/donations/<int:donation_id>', methods=['PUT'])
+@jwt_required()
+def update_donation(donation_id):
+    """Update donation details"""
     donation = Donation.query.get(donation_id)
     if not donation:
         return jsonify({"error": "Donation not found"}), 404
-    return jsonify({
-        "id": donation.id,
-        "amount": donation.amount,
-        "status": donation.status,
-        "donor_id": donation.donor_id,
-        "charity_id": donation.charity_id
-    }), 200
+
+    data = request.get_json()
+
+    # Update only provided fields
+    if "amount" in data:
+        donation.amount = data["amount"]
+    if "status" in data:
+        donation.status = data["status"]
+    if "frequency" in data:
+        donation.frequency = data["frequency"]
+    if "next_donation_date" in data:
+        donation.next_donation_date = data["next_donation_date"]
+
+    db.session.commit()
+    return jsonify({"message": "Donation updated successfully"}), 200
+
+
+@app.route('/donations/<int:donation_id>', methods=['DELETE'])
+@jwt_required()
+def delete_donation(donation_id):
+    """Delete a donation"""
+    donation = Donation.query.get(donation_id)
+    if not donation:
+        return jsonify({"error": "Donation not found"}), 404
+
+    db.session.delete(donation)
+    db.session.commit()
+    return jsonify({"message": "Donation deleted successfully"}), 200
+
 
 # ------------------- CATEGORIES -------------------
 
