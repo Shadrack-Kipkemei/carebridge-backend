@@ -64,7 +64,7 @@ def google_auth_callback():
         # Check if user exists in the database
         user = User.query.filter((User.email == email) | (User.google_id == google_id)).first()
         if not user:
-            # Create a new user with a default role (donor)
+            # Create a new user
             user = User(
                 username=name,
                 email=email,
@@ -76,12 +76,13 @@ def google_auth_callback():
 
         # Generate JWT token for the user
         access_token = create_access_token(identity=user.id)
-        return redirect(f"http://localhost:3000/select-role?token={access_token}")
+        redirect_url = f"http://localhost:3000/dashboard?token={access_token}"
+        print("Redirecting to:", redirect_url)  # Debugging
+        return redirect(redirect_url)
 
     except Exception as e:
         print("Google OAuth Error:", str(e))  # Log the error
         return redirect("http://localhost:3000/login?error=oauth_error")
-
 # ------------------- ROLE SELECTION -------------------
 
 @app.route("/auth/select-role", methods=["POST"])
