@@ -1,0 +1,19 @@
+# Ignore environment variables
+.env
+
+# Ignore local instance files
+instance/
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyc
+
+# Ignore IDE-specific files
+.vscode/
+.idea/
+
+# Ignore other sensitive files
+server/config.py
