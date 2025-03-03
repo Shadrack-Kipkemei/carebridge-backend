@@ -14,7 +14,7 @@ class User(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    donations = db.relationship('Donation', backref='donor', lazy=True, cascade='all, delete-orphan')
+    donations = db.relationship('Donation', back_populates='donor', lazy=True, cascade='all, delete-orphan')
     charities = db.relationship('Charity', backref='owner', lazy=True, cascade='all, delete-orphan')
     notification_preferences = db.relationship('NotificationPreference', backref='user', lazy=True, cascade='all, delete-orphan', uselist=False)
 
@@ -129,6 +129,7 @@ class Charity(db.Model):
 class Donation(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     donor_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    donor_name = db.Column(db.String, nullable=False)
     charity_id = db.Column(db.Integer, db.ForeignKey('charity.id'), nullable=False)
     category_id = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=False)
     beneficiary_id = db.Column(db.Integer, db.ForeignKey('beneficiary.id'), nullable=True)
@@ -145,6 +146,8 @@ class Donation(db.Model):
     payment_method = db.Column(db.String(50), nullable=True)
     payment_token = db.Column(db.String(255), nullable=True)
     notes = db.Column(db.Text, nullable=True)
+
+    donor = db.relationship('User', back_populates='donations')
 
     def calculate_next_donation_date(self):
         if not self.is_recurring or not self.frequency:

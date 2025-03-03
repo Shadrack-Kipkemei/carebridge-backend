@@ -217,49 +217,64 @@ def get_charity(charity_id):
 @app.route('/donations', methods=['POST'])
 @jwt_required()
 def create_donation():
-    """Create a new donation"""
     data = request.get_json()
+    print("Received data:", data)  # Debugging step
+
+    if not data:
+        return jsonify({"error": "Request body must be JSON"}), 400
+
     current_user_id = get_jwt_identity()
+    print("Current user ID:", current_user_id)  # Debugging step
 
-    # Ensure all required fields are present
-    required_fields = ["charity_id", "category_id", "amount", "donation_type", "beneficiary_id"]
-    if not all(key in data for key in required_fields):
-        return jsonify({"error": "All fields are required"}), 400
+    required_fields = ["charity_id", "category_id", "amount", "donation_type", "beneficiary_id", "donor_name"]
+    for field in required_fields:
+        if field not in data:
+            print(f"Missing field: {field}")  # Debugging step
+            return jsonify({"error": f"{field} is required"}), 400
 
-    # Convert date fields if they exist
-    next_donation_date = (
-        datetime.strptime(data["next_donation_date"], "%Y-%m-%d") 
-        if "next_donation_date" in data and data["next_donation_date"] 
-        else None
-    )
+    try:
+        # Handle next_donation_date properly
+        next_donation_date = None
+        if "next_donation_date" in data and data["next_donation_date"] is not None:
+            # Only parse if next_donation_date is a non-empty string
+            if isinstance(data["next_donation_date"], str) and data["next_donation_date"].strip():
+                next_donation_date = datetime.strptime(data["next_donation_date"], "%Y-%m-%d")
+            else:
+                print("next_donation_date is not a valid string, setting to None")
 
-    donation = Donation(
-        donor_id=current_user_id,
-        charity_id=data["charity_id"],
-        category_id=data["category_id"],
-        beneficiary_id=data["beneficiary_id"],  # Added beneficiary_id
-        amount=data["amount"],
-        donation_type=data["donation_type"],
-        status="pending",
-        frequency=data.get("frequency"),
-        next_donation_date=next_donation_date
-    )
+        donation = Donation(
+            donor_id=current_user_id,
+            donor_name=data["donor_name"],  
+            charity_id=int(data["charity_id"]),
+            category_id=int(data["category_id"]),
+            beneficiary_id=int(data["beneficiary_id"]),
+            amount=float(data["amount"]),
+            donation_type=data["donation_type"],
+            status="pending",
+            frequency=data.get("frequency"),
+            next_donation_date=next_donation_date
+        )
 
-    db.session.add(donation)
-    db.session.commit()
+        db.session.add(donation)
+        db.session.commit()
 
-    return jsonify({
-        "message": "Donation created successfully",
-        "donation": {
-            "id": donation.id,
-            "amount": donation.amount,
-            "donor_id": donation.donor_id,
-            "charity_id": donation.charity_id,
-            "beneficiary_id": donation.beneficiary_id,  # Return beneficiary_id
-            "status": donation.status
-        }
-    }), 201
-
+        return jsonify({
+            "message": "Donation created successfully",
+            "donation": {
+                "id": donation.id,
+                "amount": donation.amount,
+                "donor_id": donation.donor_id,
+                "charity_id": donation.charity_id,
+                "beneficiary_id": donation.beneficiary_id,
+                "status": donation.status
+            }
+        }), 201
+    except ValueError as e:
+        print(f"ValueError: {str(e)}")  # Debugging step
+        return jsonify({"error": f"Invalid data format: {str(e)}"}), 422
+    except Exception as e:
+        print(f"Exception: {str(e)}")  # Debugging step
+        return jsonify({"error": f"Internal Server Error: {str(e)}"}), 500
 
 @app.route('/donations/<int:donation_id>', methods=['GET'])
 @jwt_required()
@@ -275,7 +290,9 @@ def get_donation(donation_id):
         "status": donation.status,
         "donor_id": donation.donor_id,
         "charity_id": donation.charity_id,
-        "beneficiary_id": donation.beneficiary_id  # Include beneficiary_id in response
+        "beneficiary_id": donation.beneficiary_id,
+        "anonymous": donation.is_anonymous,  
+        "donor_name": donation.donor.name_name if not donation.is_anonymous else None,  # ✅ Added donor's name if not anonymous
     }), 200
 
 
@@ -290,7 +307,11 @@ def get_all_donations():
             "amount": donation.amount,
             "status": donation.status,
             "donor_id": donation.donor_id,
-            "charity_id": donation.charity_id
+            "charity_id": donation.charity_id,
+            "beneficiary_id": donation.beneficiary_id,
+            "anonymous": donation.is_anonymous,  
+            "donor_name": donation.donor_name if donation.donor_name and not donation.is_anonymous else None,
+            "next_donation_date": donation.next_donation_date.strftime("%Y-%m-%d") if donation.next_donation_date else None,
         }
         for donation in donations
     ]), 200
