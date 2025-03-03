@@ -1,6 +1,6 @@
 import pytest
 from server import create_app, db
-from server.models import User, NotificationPreference
+from server.models import User, NotificationPreference, Charity
 
 class TestConfig:
     TESTING = True
@@ -49,16 +49,53 @@ def test_user(app, client):
         yield user
 
 @pytest.fixture(scope='function')
+def test_charity(app, test_user):
+    """Fixture to create a test charity"""
+    with app.app_context():
+        charity = Charity(
+            name="Test Charity",
+            description="A charity for testing",
+            owner_id=test_user.id,
+            is_approved=True
+        )
+        db.session.add(charity)
+        db.session.commit()
+        db.session.refresh(charity)
+        yield charity
+
+@pytest.fixture(scope='function')
+def charity_user(app, test_user):
+    """Create a user with charity role"""
+    with app.app_context():
+        test_user.role = "charity"
+        db.session.commit()
+        return test_user
+
+@pytest.fixture(scope='function')
+def charity_headers(app, test_user):
+    """Create headers for a user with charity role"""
+    from flask_jwt_extended import create_access_token
+    
+    with app.app_context():
+        test_user.role = "charity"
+        db.session.commit()
+        current_user = db.session.merge(test_user)
+        access_token = create_access_token(identity=str(current_user.id))
+        return {
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json'
+        }
+
+@pytest.fixture(scope='function')
 def auth_headers(app, test_user):
     """Create authentication headers for testing protected routes."""
     from flask_jwt_extended import create_access_token
     
     with app.app_context():
         # Get a fresh copy of the user
-        user = db.session.merge(test_user)
-        access_token = create_access_token(identity=str(user.id))
-        headers = {
+        current_user = db.session.merge(test_user)
+        access_token = create_access_token(identity=str(current_user.id))
+        return {
             'Authorization': f'Bearer {access_token}',
             'Content-Type': 'application/json'
         }
-        return headers
