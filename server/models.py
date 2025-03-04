@@ -5,24 +5,21 @@ from server import db, bcrypt
 
 # User Model
 class User(db.Model):
+    __tablename__ = "user"
+    __table_args__ = {'extend_existing': True}  # ✅ Fix duplication issue
+
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
+    role = db.Column(db.String(50), nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
-    role = db.Column(db.String(20), nullable=False, default="donor")  # donor, charity, admin
-    is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    donations = db.relationship('Donation', backref='donor', lazy=True, cascade='all, delete-orphan')
-    charities = db.relationship('Charity', backref='owner', lazy=True, cascade='all, delete-orphan')
-    notification_preferences = db.relationship('NotificationPreference', backref='user', lazy=True, cascade='all, delete-orphan', uselist=False)
 
     def set_password(self, password):
-        self.password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+        self.password_hash = generate_password_hash(password)
 
     def check_password(self, password):
-        return bcrypt.check_password_hash(self.password_hash, password)
+        return check_password_hash(self.password_hash, password)
+
 
     @classmethod
     def register(cls):
@@ -86,6 +83,39 @@ class Charity(db.Model):
     stories = db.relationship('Story', backref='charity', lazy=True)
     beneficiaries = db.relationship('Beneficiary', backref='charity', lazy=True)
 
+    def get_total_donations(self):
+        """Get total donation amount for the charity"""
+        return sum(donation.amount for donation in self.donations)
+
+    def get_total_donors(self):
+        """Get total unique donors for the charity"""
+        return len(set(donation.donor_id for donation in self.donations))
+
+    def get_recent_donations(self, limit=5):
+        """Get recent donations for the charity"""
+        recent = sorted(self.donations, key=lambda x: x.created_at, reverse=True)[:limit]
+        return [{
+            'id': donation.id,
+            'amount': donation.amount,
+            'date': donation.created_at.isoformat(),
+            'donor_name': donation.donor.username if (donation.donor and not donation.is_anonymous) else 'Anonymous',
+            'type': donation.donation_type,
+            'status': donation.status
+        } for donation in recent]
+
+    def get_dashboard_data(self):
+        """Get comprehensive dashboard data for the charity"""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'total_donations': self.get_total_donations(),
+            'total_donors': self.get_total_donors(),
+            'recent_donations': self.get_recent_donations(),
+            'beneficiaries_count': len(self.beneficiaries),
+            'stories_count': len(self.stories)
+        }
+
     @classmethod
     @jwt_required()
     def create_charity(cls):
@@ -145,6 +175,7 @@ class Donation(db.Model):
     payment_method = db.Column(db.String(50), nullable=True)
     payment_token = db.Column(db.String(255), nullable=True)
     notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def calculate_next_donation_date(self):
         if not self.is_recurring or not self.frequency:
@@ -206,14 +237,6 @@ class Donation(db.Model):
         donation.next_donation_date = donation.calculate_next_donation_date()
 
         db.session.add(donation)
-        db.session.commit()
-
-        # Create notification
-        notification = Notification(
-            user_id=current_user_id,
-            message=f"Recurring {donation.frequency} donation of {donation.amount} set up successfully."
-        )
-        db.session.add(notification)
         db.session.commit()
 
         return jsonify({

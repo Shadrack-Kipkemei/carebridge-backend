@@ -1,6 +1,8 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
-from datetime import datetime, UTC
+from datetime import datetime, timezone
+UTC = timezone.utc  # ✅ Works for Python 3.8+
+
 from server import db
 from server.models import (
     User, Charity, Donation, Category, Transaction,
@@ -76,6 +78,93 @@ def get_charities():
         "created_at": c.created_at.isoformat()
     } for c in charities]), 200
 
+@api.route('/api/charities/<int:charity_id>/dashboard', methods=['GET'])
+@jwt_required()
+def get_charity_dashboard(charity_id):
+    """Get comprehensive dashboard data for a charity"""
+    current_user_id = get_jwt_identity()
+    charity = Charity.query.get(charity_id)
+    
+    if not charity:
+        return jsonify({"error": "Charity not found"}), 404
+        
+    # Check if user is authorized (admin or charity owner)
+    if str(current_user_id) != str(charity.owner_id):
+        user = User.query.get(current_user_id)
+        if not user or user.role != 'admin':
+            return jsonify({"error": "Unauthorized access"}), 403
+    
+    return jsonify(charity.get_dashboard_data()), 200
+
+@api.route('/api/charities/<int:charity_id>/donations', methods=['GET'])
+@jwt_required()
+def get_charity_donations(charity_id):
+    """Get all donations for a charity"""
+    current_user_id = get_jwt_identity()
+    charity = Charity.query.get(charity_id)
+    
+    if not charity:
+        return jsonify({"error": "Charity not found"}), 404
+        
+    # Check if user is authorized (admin or charity owner)
+    if str(current_user_id) != str(charity.owner_id):
+        user = User.query.get(current_user_id)
+        if not user or user.role != 'admin':
+            return jsonify({"error": "Unauthorized access"}), 403
+    
+    donations = [{
+        'id': donation.id,
+        'amount': donation.amount,
+        'date': donation.created_at.isoformat(),
+        'donor_name': donation.donor.username if (donation.donor and not donation.is_anonymous) else 'Anonymous',
+        'type': donation.donation_type,
+        'status': donation.status,
+        'is_recurring': donation.is_recurring,
+        'frequency': donation.frequency if donation.is_recurring else None
+    } for donation in charity.donations]
+    
+    return jsonify(donations), 200
+
+@api.route('/api/charities/<int:charity_id>/analytics', methods=['GET'])
+@jwt_required()
+def get_charity_analytics(charity_id):
+    """Get analytics data for a charity"""
+    current_user_id = get_jwt_identity()
+    charity = Charity.query.get(charity_id)
+    
+    if not charity:
+        return jsonify({"error": "Charity not found"}), 404
+        
+    # Check if user is authorized (admin or charity owner)
+    if str(current_user_id) != str(charity.owner_id):
+        user = User.query.get(current_user_id)
+        if not user or user.role != 'admin':
+            return jsonify({"error": "Unauthorized access"}), 403
+    
+    # Calculate analytics
+    total_donations = charity.get_total_donations()
+    total_donors = charity.get_total_donors()
+    recent_donations = charity.get_recent_donations()
+    
+    # Count donations by type
+    donation_types = {}
+    for donation in charity.donations:
+        donation_types[donation.donation_type] = donation_types.get(donation.donation_type, 0) + 1
+    
+    # Count recurring vs one-time donations
+    recurring_count = len([d for d in charity.donations if d.is_recurring])
+    one_time_count = len(charity.donations) - recurring_count
+    
+    return jsonify({
+        'total_donations': total_donations,
+        'total_donors': total_donors,
+        'recent_donations': recent_donations,
+        'donation_types': donation_types,
+        'recurring_donations': recurring_count,
+        'one_time_donations': one_time_count,
+        'beneficiaries_count': len(charity.beneficiaries),
+        'stories_count': len(charity.stories)
+    }), 200
 @api.route('/api/charities', methods=['POST'])
 @jwt_required()
 def create_charity():
