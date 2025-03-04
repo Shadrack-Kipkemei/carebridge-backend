@@ -317,7 +317,7 @@ def get_all_donations():
     ]), 200
 
 
-@app.route('/donations/<int:donation_id>', methods=['PUT'])
+@app.route('/donations/<int:donation_id>', methods=['PATCH'])
 @jwt_required()
 def update_donation(donation_id):
     """Update donation details"""
@@ -325,17 +325,35 @@ def update_donation(donation_id):
     if not donation:
         return jsonify({"error": "Donation not found"}), 404
 
+    current_user_id = int(get_jwt_identity())
+    token = request.headers.get('Authorization').split()[1]
+    print(f"DEBUG: Token: {token}")  # Add token debugging
+    print(f"DEBUG: Current User ID: {current_user_id}, Donation Donor ID: {donation.donor_id}")  # Debugging
+
+    if donation.donor_id != current_user_id:
+        return jsonify({"error": "You are not authorized to update this donation"}), 403
+
+    # Ensure the donation status is pending before updating
+    if donation.status != "pending":
+        print(f"DEBUG: Donation status is {donation.status}, expected 'pending'.")
+        return jsonify({"error": "Only pending donations can be updated"}), 400
+
+
     data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
 
     # Update only provided fields
     if "amount" in data:
-        donation.amount = data["amount"]
-    if "status" in data:
-        donation.status = data["status"]
-    if "frequency" in data:
-        donation.frequency = data["frequency"]
-    if "next_donation_date" in data:
-        donation.next_donation_date = data["next_donation_date"]
+        donation.amount = float(data["amount"])
+    if "charity_id" in data:
+        donation.charity_id = int(data["charity_id"])
+    if "category_id" in data:
+        donation.category_id = int(data["category_id"])
+    if "donor_name" in data:
+        donation.donor_name = data["donor_name"]
+    if "is_anonymous" in data:
+        donation.is_anonymous = bool(data["is_anonymous"])
 
     db.session.commit()
     return jsonify({"message": "Donation updated successfully"}), 200
@@ -348,6 +366,15 @@ def delete_donation(donation_id):
     donation = Donation.query.get(donation_id)
     if not donation:
         return jsonify({"error": "Donation not found"}), 404
+
+    current_user_id = int(get_jwt_identity())
+    print(f"DEBUG: Current User ID: {type(current_user_id)}, Donation Donor ID: {type(donation.donor_id)}")  # Debugging
+
+    if donation.donor_id != current_user_id:
+        return jsonify({"error": "You are not authorized to delete this donation"}), 403
+
+    if donation.status != "pending":
+        return jsonify({"error": "Only pending donations can be deleted"}), 400
 
     db.session.delete(donation)
     db.session.commit()
