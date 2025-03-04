@@ -13,6 +13,7 @@ class User(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    google_id = db.Column(db.String(120), unique=True, nullable=True)  # Unique and nullable
 
     donations = db.relationship('Donation', back_populates='donor', lazy=True, cascade='all, delete-orphan')
     charities = db.relationship('Charity', backref='owner', lazy=True, cascade='all, delete-orphan')
