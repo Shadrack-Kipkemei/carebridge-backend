@@ -16,7 +16,7 @@ class User(db.Model):
     is_anonymous = db.Column(db.Boolean, default=False)
     receive_reminders = db.Column(db.Boolean, default=False)
     profile_picture = db.Column(db.Text)  # Store base64 encoded image or file path
-
+    google_id = db.Column(db.String(120), unique=True, nullable=True)  # Unique and nullable
     donations = db.relationship('Donation', back_populates='donor', lazy=True, cascade='all, delete-orphan')
     charities = db.relationship('Charity', backref='owner', lazy=True, cascade='all, delete-orphan')
     notification_preferences = db.relationship('NotificationPreference', backref='user', lazy=True, cascade='all, delete-orphan', uselist=False)
