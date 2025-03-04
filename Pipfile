@@ -16,7 +16,10 @@ flask-mail = "*"
 itsdangerous = "*"
 python-dotenv = "*"
 apscheduler = "*"
-
+flask-cors = "*"
+authlib = "*"
+requests = "*"
+faker = "*"
 [dev-packages]
 
 [requires]
