@@ -116,6 +116,7 @@ def register():
     if not all(key in data for key in ["username", "email", "password", "confirmPassword", "role"]):
         return jsonify({"error": "All fields are required"}), 400
 
+
     if data["password"] != data["confirmPassword"]:
         return jsonify({"error": "Passwords do not match"}), 400
 
