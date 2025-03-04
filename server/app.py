@@ -381,6 +381,50 @@ def delete_donation(donation_id):
     return jsonify({"message": "Donation deleted successfully"}), 200
 
 
+@app.route('/profile', methods=['GET', 'PATCH', 'OPTIONS'])
+@jwt_required()
+def profile_settings():
+    if request.method == 'OPTIONS':
+        # Handle preflight request
+        return jsonify(), 200
+
+    current_user_id = int(get_jwt_identity())
+    user = User.query.get(current_user_id)
+
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    if request.method == 'GET':
+        # Return the current profile data
+        return jsonify({
+            "username": user.username,
+            "email": user.email,
+            "is_anonymous": user.is_anonymous if hasattr(user, 'is_anonymous') else False,  # Default to False if not present
+            "receive_reminders": user.receive_reminders if hasattr(user, 'receive_reminders') else False  # Default to False if not present
+        }), 200
+
+    elif request.method == 'PATCH':
+        # Update profile data
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        # Update fields if provided
+        if "username" in data:
+            user.username = data["username"]
+        if "email" in data:
+            user.email = data["email"]
+        if "password" in data and data["password"]:  # Only update password if it's provided and non-empty
+            user.password = bcrypt.generate_password_hash(data["password"]).decode('utf-8')
+        if "is_anonymous" in data:
+            user.is_anonymous = data["is_anonymous"]
+        if "receive_reminders" in data:
+            user.receive_reminders = data["receive_reminders"]
+
+        db.session.commit()
+        return jsonify({"message": "Profile updated successfully"}), 200
+        
+
 # ------------------- CATEGORIES -------------------
 
 @app.route('/categories', methods=['GET'])
