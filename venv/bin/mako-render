@@ -1,4 +1,4 @@
-#!/home/dr/development/phase-5/carebridge-backend/venv/bin/python3
+#!/home/dr/development/phase-5/carebridge-backend/venv/bin/python
 # -*- coding: utf-8 -*-
 import re
 import sys
