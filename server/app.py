@@ -45,7 +45,6 @@ def get_donor_email(donor_id):
         return donor.email
     raise ValueError("Donor email not found")
 
-
 # Google OAuth Configuration
 google = oauth.register(
     name="google",
@@ -124,6 +123,7 @@ def register():
 
     if not all(key in data for key in ["username", "email", "password", "confirmPassword", "role"]):
         return jsonify({"error": "All fields are required"}), 400
+
 
     if data["password"] != data["confirmPassword"]:
         return jsonify({"error": "Passwords do not match"}), 400
@@ -809,6 +809,7 @@ def get_charities():
 
     return jsonify(charity_list), 200
 
+<<<<<<< HEAD
 # Delete a charity (admin-only)
 @app.route('/api/admin/charities/<int:id>', methods=['DELETE'])
 @jwt_required()
@@ -834,6 +835,23 @@ def delete_charity(id):
         return jsonify({"message": "Charity deleted successfully"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+@admin_bp.route('/charities/<int:id>', methods=['DELETE'])
+@jwt_required()
+def delete_charity(id):
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+
+    if user.role != 'admin':
+        return jsonify({"error": "Unauthorized"}), 403
+
+    charity = Charity.query.get(id)
+    if not charity:
+        return jsonify({"error": "Charity not found"}), 404
+
+    db.session.delete(charity)
+    db.session.commit()
+
+    return jsonify({"message": "Charity deleted successfully"}), 200
 @admin_bp.route('/settings', methods=['PATCH'])
 @jwt_required()
 def update_settings():
@@ -852,6 +870,7 @@ def update_settings():
 
     return jsonify({"message": "Settings updated successfully"}), 200
 
+<<<<<<< HEAD
 @admin_bp.route('/update-admin-profile', methods=['PATCH'])
 @jwt_required()
 def update_main_admin_profile():
@@ -892,6 +911,34 @@ def update_main_admin_profile():
 
     db.session.commit()
     return jsonify({"message": "Admin profile updated successfully"}), 200
+
+@admin_bp.route('/update-profile', methods=['PATCH'])
+@jwt_required()
+def update_profile():
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+
+    if user.role != 'admin':
+        return jsonify({"error": "Unauthorized"}), 403
+
+    data = request.form
+    username = data.get('username')
+    password = data.get('password')
+    profile_picture = request.files.get('profilePicture')
+
+    if username:
+        user.username = username
+
+    if password:
+        user.set_password(password)
+
+    if profile_picture:
+        # Handle profile picture upload (e.g., save to disk or cloud storage)
+        pass
+
+    db.session.commit()
+
+    return jsonify({"message": "Profile updated successfully"}), 200
 @admin_bp.route('/donation-statistics', methods=['GET', 'OPTIONS'])
 @cross_origin()
 @jwt_required()
@@ -1028,6 +1075,24 @@ def get_recent_activities():
 
     # Return the combined and sorted list of activities
     return jsonify(result)
+=======
+    donations = db.session.query(
+        db.func.date_trunc('month', Donation.timestamp).label('month'),
+        db.func.sum(Donation.amount).label('total')
+    ).group_by(db.func.date_trunc('month', Donation.timestamp)).order_by('month').all()
+    
+    labels = [d.month.strftime("%B %Y") if isinstance(d.month, datetime) else str(d.month) for d in donations]
+    values = [d.total for d in donations]
+
+    return jsonify({"labels": labels, "values": values})
+
+@app.route("/api/recent-activities", methods=["GET"])
+def get_recent_activities():
+    activities = ActivityLog.query.order_by(ActivityLog.timestamp.desc()).limit(10).all()
+    return jsonify([
+        {"message": activity.message, "timestamp": activity.timestamp.strftime("%Y-%m-%d %H:%M")}
+        for activity in activities
+    ])
 @admin_bp.route('/api/admin/update-profile', methods=['PATCH'])
 @jwt_required()
 def update_admin_profile():

@@ -1,7 +1,11 @@
 {
     "_meta": {
         "hash": {
+<<<<<<< HEAD
             "sha256": "f590d1b20b22b725c0c6e68874125a7825b775006d12d688b84dded2192e3cee"
+=======
+            "sha256": "fb964f4389d4614753825c66ac721509033259c092e86fe9e2ecad49001c1ad2"
+>>>>>>> philip/admin
         },
         "pipfile-spec": 6,
         "requires": {
@@ -31,6 +35,7 @@
             ],
             "version": "==10.0.0"
         },
+<<<<<<< HEAD
         "apscheduler": {
             "hashes": [
                 "sha256:4c622d250b0955a65d5d0eb91c33e6d43fd879834bf541e0a18661ae60460133",
@@ -40,6 +45,8 @@
             "markers": "python_version >= '3.8'",
             "version": "==3.11.0"
         },
+=======
+>>>>>>> philip/admin
         "authlib": {
             "hashes": [
                 "sha256:5cbc85ecb0667312c1cdc2f9095680bb735883b123fb509fde1e65b1c5df972e",
@@ -769,6 +776,7 @@
             "markers": "python_version >= '2'",
             "version": "==2025.1"
         },
+<<<<<<< HEAD
         "tzlocal": {
             "hashes": [
                 "sha256:2fafbfc07e9d8b49ade18f898d6bcd37ae88ce3ad6486842a2e4f03af68323d2",
@@ -777,6 +785,8 @@
             "markers": "python_version >= '3.9'",
             "version": "==5.3"
         },
+=======
+>>>>>>> philip/admin
         "urllib3": {
             "hashes": [
                 "sha256:1cee9ad369867bfdbbb48b7dd50374c0967a0bb7710050facf0dd6911440e3df",

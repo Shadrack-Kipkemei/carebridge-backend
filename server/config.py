@@ -33,12 +33,10 @@ class Config:
     MAIL_USERNAME = os.getenv('MAIL_USERNAME')
     MAIL_PASSWORD = os.getenv('MAIL_PASSWORD')
     MAIL_DEFAULT_SENDER = os.getenv('MAIL_DEFAULT_SENDER')
-    
     # Google OAuth settings
     GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "713932264803-lao9ath49ealvab0imkaltmrt61f0ofs.apps.googleusercontent.com")
     GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "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")
-    GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:5000/login/google/callback")
-    
+    GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:5000/login/google/callback")   
     # CORS settings
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")  # Allow all origins or specify domains
     CORS_SUPPORTS_CREDENTIALS = True  # Allow credentials for JWT in cookies
