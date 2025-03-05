@@ -5,10 +5,11 @@ from server import db, bcrypt
 
 # User Model
 class User(db.Model):
+    __table_args__ = {'extend_existing': True}
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
-    password_hash = db.Column(db.String(128), nullable=False)
+    password_hash = db.Column(db.String(128), nullable=True)
     role = db.Column(db.String(20), nullable=False, default="donor")  # donor, charity, admin
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -16,7 +17,7 @@ class User(db.Model):
     is_anonymous = db.Column(db.Boolean, default=False)
     receive_reminders = db.Column(db.Boolean, default=False)
     profile_picture = db.Column(db.Text)  # Store base64 encoded image or file path
-
+    google_id = db.Column(db.String(120), unique=True, nullable=True)  # Unique and nullable
     donations = db.relationship('Donation', back_populates='donor', lazy=True, cascade='all, delete-orphan')
     charities = db.relationship('Charity', backref='owner', lazy=True, cascade='all, delete-orphan')
     notification_preferences = db.relationship('NotificationPreference', backref='user', lazy=True, cascade='all, delete-orphan', uselist=False)
@@ -90,7 +91,7 @@ class Charity(db.Model):
     
     donations = db.relationship('Donation', backref='charity', lazy=True)
     stories = db.relationship('Story', backref='charity', lazy=True)
-    beneficiaries = db.relationship('Beneficiary', backref='charity', lazy=True)
+    beneficiaries = db.relationship('Beneficiary', backref='charity_owner', lazy=True)
 
     @classmethod
     @jwt_required()
@@ -306,13 +307,14 @@ class Story(db.Model):
 # Beneficiary Model
 class Beneficiary(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    charity_id = db.Column(db.Integer, db.ForeignKey('charity.id'), nullable=False)
+    charity_id = db.Column(db.Integer, db.ForeignKey('charity.id', ondelete='CASCADE'), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=True)
     location = db.Column(db.String(200), nullable=True)
     needs = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
 
     @classmethod
     @jwt_required()
