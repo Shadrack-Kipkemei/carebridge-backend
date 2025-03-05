@@ -15,6 +15,7 @@ flask-serializer = "*"
 flask-mail = "*"
 itsdangerous = "*"
 python-dotenv = "*"
+apscheduler = "*"
 
 [dev-packages]
 
