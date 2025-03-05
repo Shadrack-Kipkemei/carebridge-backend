@@ -12,6 +12,13 @@ from flask_jwt_extended import create_access_token
 from datetime import datetime
 from flask_cors import CORS, cross_origin
 from authlib.integrations.flask_client import OAuth
+from sqlalchemy.sql import func
+import base64
+UPLOAD_FOLDER = "uploads"  # Ensure this folder exists
+ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
 # Initialize Flask App
 app = Flask(__name__, instance_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'instance'))
 app.config.from_object(Config)
@@ -26,7 +33,9 @@ migrate = Migrate(app, db)
 mail = Mail(app)
 s = URLSafeTimedSerializer("your_secret_key")  # Token generator
 CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}}, supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
-
+#cheking if upload profile location is available
+UPLOAD_FOLDER = "uploads"  # Folder to store uploaded images
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # ------------------- HELPER FUNCTIONS -------------------
 # Helper function to get donor email
@@ -115,7 +124,6 @@ def register():
 
     if not all(key in data for key in ["username", "email", "password", "confirmPassword", "role"]):
         return jsonify({"error": "All fields are required"}), 400
-
 
     if data["password"] != data["confirmPassword"]:
         return jsonify({"error": "Passwords do not match"}), 400
@@ -239,6 +247,7 @@ def protected():
 # ------------------- USERS -------------------
 
 @app.route('/users', methods=['GET'])
+@jwt_required()
 def get_users():
     users = User.query.all()
     return jsonify([
@@ -256,12 +265,24 @@ def get_user(user_id):
 # ------------------- CHARITIES -------------------
 
 @app.route('/charities', methods=['GET'])
+# @jwt_required()
 def get_charities():
-    charities = Charity.query.all()
-    return jsonify([
-        {"id": charity.id, "name": charity.name, "description": charity.description}
-        for charity in charities
-    ]), 200
+    try:
+        # Fetch all charities from the database
+        charities = Charity.query.all()
+        # Convert the list of Charity objects to a list of dictionaries
+        charities_data = [{
+            "id": charity.id,
+            "name": charity.name,
+            "description": charity.description,
+            "owner_id": charity.owner_id,
+            "created_at": charity.created_at.isoformat() if charity.created_at else None,
+            "is_approved": charity.is_approved
+        } for charity in charities]
+        return jsonify(charities_data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route('/charities', methods=['POST'])
 @jwt_required()
@@ -480,55 +501,38 @@ def delete_donation(donation_id):
     return jsonify({"message": "Donation deleted successfully"}), 200
 
 
-@app.route('/profile', methods=['GET', 'PATCH', 'OPTIONS'])
+from werkzeug.utils import secure_filename
+
+@app.route('/profile', methods=['PATCH'])
 @jwt_required()
 def profile_settings():
-    if request.method == 'OPTIONS':
-        # Handle preflight request
-        return jsonify(), 200
-
     current_user_id = int(get_jwt_identity())
     user = User.query.get(current_user_id)
 
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    if request.method == 'GET':
-        # Return the current profile data
-        return jsonify({
-            "username": user.username,
-            "email": user.email,
-            "is_anonymous": user.is_anonymous if hasattr(user, 'is_anonymous') else False,  # Default to False if not present
-            "receive_reminders": user.receive_reminders if hasattr(user, 'receive_reminders') else False,  # Default to False if not present
-            "profile_picture": user.profile_picture  # Include profile picture in the response
-        }), 200
+    # Handle file upload
+    if 'profile_picture' in request.files:
+        file = request.files['profile_picture']
+        if file.filename != '':
+            filename = secure_filename(file.filename)
+            file_path = os.path.join(UPLOAD_FOLDER, filename)
+            file.save(file_path)
+            user.profile_picture = file_path
 
-    elif request.method == 'PATCH':
-        # Update profile data
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "No data provided"}), 400
-
-        # Update fields if provided
-        if "username" in data:
-            user.username = data["username"]
-        if "email" in data:
-            user.email = data["email"]
-        if "password" in data and data["password"]:  # Only update password if it's provided and non-empty
-            user.password = bcrypt.generate_password_hash(data["password"]).decode('utf-8')
-        if "is_anonymous" in data:
-            user.is_anonymous = data["is_anonymous"]
-        if "receive_reminders" in data:
-            user.receive_reminders = data["receive_reminders"]
-        if "profile_picture" in data:  # Update profile picture if provided
-            user.profile_picture = data["profile_picture"]
-
-        db.session.commit()
-        return jsonify({"message": "Profile updated successfully"}), 200
-
-
-# ------------------- REMINDERS -------------------
-
+    # Update other fields
+    data = request.form
+    if "username" in data:
+        user.username = data["username"]
+    if "email" in data:
+        user.email = data["email"]
+    if "password" in data and data["password"]:
+        user.password = bcrypt.generate_password_hash(data["password"]).decode('utf-8')
+    if "is_anonymous" in data:
+        user.is_anonymous = data["is_anonymous"].lower() == "true"
+    if "receive_reminders" in data:
+        user.receive_reminders = data["receive_reminders"].lower() == "true"
 
 @app.route('/send-reminders', methods=['POST'])
 def send_reminders():
@@ -710,8 +714,9 @@ def create_story():
             "created_at": story.created_at.isoformat()
         }
     }), 201
-
-
+    
+    db.session.commit()
+    return jsonify({"message": "Profile updated successfully"}), 200
         
 # ------------------- CATEGORIES -------------------
 
@@ -804,23 +809,31 @@ def get_charities():
 
     return jsonify(charity_list), 200
 
-@admin_bp.route('/charities/<int:id>', methods=['DELETE'])
+# Delete a charity (admin-only)
+@app.route('/api/admin/charities/<int:id>', methods=['DELETE'])
 @jwt_required()
 def delete_charity(id):
-    current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
+    try:
+        # Get the current user from the JWT token
+        current_user_id = get_jwt_identity()
+        current_user = User.query.get(current_user_id)
 
-    if user.role != 'admin':
-        return jsonify({"error": "Unauthorized"}), 403
+        # Check if the current user is an admin
+        if not current_user or current_user.role != "admin":
+            return jsonify({"error": "Unauthorized"}), 403
 
-    charity = Charity.query.get(id)
-    if not charity:
-        return jsonify({"error": "Charity not found"}), 404
+        # Find the charity by ID
+        charity = Charity.query.get(id)
+        if not charity:
+            return jsonify({"error": "Charity not found"}), 404
 
-    db.session.delete(charity)
-    db.session.commit()
+        # Delete the charity
+        db.session.delete(charity)
+        db.session.commit()
 
-    return jsonify({"message": "Charity deleted successfully"}), 200
+        return jsonify({"message": "Charity deleted successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 @admin_bp.route('/settings', methods=['PATCH'])
 @jwt_required()
 def update_settings():
@@ -839,33 +852,46 @@ def update_settings():
 
     return jsonify({"message": "Settings updated successfully"}), 200
 
-@admin_bp.route('/update-profile', methods=['PATCH'])
+@admin_bp.route('/update-admin-profile', methods=['PATCH'])
 @jwt_required()
-def update_profile():
-    current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
+def update_main_admin_profile():
+    user_id = get_jwt_identity()  # Get logged-in user's ID
+    admin = User.query.get(user_id)
 
-    if user.role != 'admin':
-        return jsonify({"error": "Unauthorized"}), 403
+    if not admin or admin.role != "admin":
+        return jsonify({"error": "Unauthorized"}), 403  # Only admins can update profile
 
-    data = request.form
-    username = data.get('username')
-    password = data.get('password')
-    profile_picture = request.files.get('profilePicture')
+    data = request.get_json()
 
-    if username:
-        user.username = username
+    # Update text fields
+    if "username" in data:
+        admin.username = data["username"]
+    if "email" in data:
+        if User.query.filter_by(email=data["email"]).first():
+            return jsonify({"error": "Email already in use"}), 400
+        admin.email = data["email"]
+    if "password" in data:
+        admin.password_hash = generate_password_hash(data["password"])  # Hash new password
 
-    if password:
-        user.set_password(password)
+    # Handle profile picture (Base64 or File Path)
+    if "profile_picture" in data and data["profile_picture"]:
+        image_data = data["profile_picture"]
 
-    if profile_picture:
-        # Handle profile picture upload (e.g., save to disk or cloud storage)
-        pass
+        if image_data.startswith("data:image"):
+            # Convert Base64 string to an image file
+            header, encoded = image_data.split(",", 1)
+            file_extension = header.split("/")[1].split(";")[0]  # Get file extension (png, jpeg, etc.)
+            file_path = f"{UPLOAD_FOLDER}/admin_{user_id}.{file_extension}"
+
+            with open(file_path, "wb") as image_file:
+                image_file.write(base64.b64decode(encoded))
+
+            admin.profile_picture = file_path  # Store file path in the DB
+        else:
+            return jsonify({"error": "Invalid image format"}), 400
 
     db.session.commit()
-
-    return jsonify({"message": "Profile updated successfully"}), 200
+    return jsonify({"message": "Admin profile updated successfully"}), 200
 @admin_bp.route('/donation-statistics', methods=['GET', 'OPTIONS'])
 @cross_origin()
 @jwt_required()
@@ -952,23 +978,56 @@ def get_stats():
 # Route to get donation growth data
 @app.route("/api/donation-data", methods=["GET"])
 def get_donation_data():
-    donations = db.session.query(
-        db.func.date_trunc('month', Donation.timestamp).label('month'),
-        db.func.sum(Donation.amount).label('total')
-    ).group_by(db.func.date_trunc('month', Donation.timestamp)).order_by('month').all()
-    
-    labels = [d.month.strftime("%B %Y") if isinstance(d.month, datetime) else str(d.month) for d in donations]
-    values = [d.total for d in donations]
+    if "sqlite" in db.engine.url.drivername:
+        trunc_date = func.strftime('%Y-%m', Donation.start_date)  # SQLite
+    else:  # PostgreSQL
+        trunc_date = func.date_trunc('month', Donation.start_date)
 
-    return jsonify({"labels": labels, "values": values})
+    result = db.session.query(
+        trunc_date.label('month'),
+        func.sum(Donation.amount).label('total')
+    ).group_by(trunc_date).order_by(trunc_date).all()
+
+    return jsonify([{"month": row.month, "total": row.total} for row in result])
 
 @app.route("/api/recent-activities", methods=["GET"])
 def get_recent_activities():
-    activities = ActivityLog.query.order_by(ActivityLog.timestamp.desc()).limit(10).all()
-    return jsonify([
-        {"message": activity.message, "timestamp": activity.timestamp.strftime("%Y-%m-%d %H:%M")}
-        for activity in activities
-    ])
+    # Fetch recent donations
+    donations = Donation.query.order_by(Donation.start_date.desc()).limit(10).all()
+
+    # Fetch recent charity applications
+    charities = Charity.query.order_by(Charity.created_at.desc()).limit(10).all()
+
+    # Combine both donations and charity applications
+    activities = donations + charities
+
+    # Sort all activities by the relevant timestamp (start_date for donations, created_at for charities)
+    activities.sort(key=lambda x: x.created_at if hasattr(x, 'created_at') else x.start_date, reverse=True)
+
+    # Prepare the response data
+    result = []
+    
+    for activity in activities:
+        if isinstance(activity, Donation):
+            result.append({
+                "type": "donation",
+                "amount": activity.amount,
+                "start_date": activity.start_date.strftime("%Y-%m-%d %H:%M"),
+                "donor_name": activity.donor_name,
+                "charity_id": activity.charity_id,
+                "status": activity.status
+            })
+        elif isinstance(activity, Charity):
+            status = "Approved" if activity.is_approved else "Pending"
+            result.append({
+                "type": "charity_application",
+                "name": activity.name,
+                "status": status,
+                "created_at": activity.created_at.strftime("%Y-%m-%d %H:%M")
+            })
+
+    # Return the combined and sorted list of activities
+    return jsonify(result)
 @admin_bp.route('/api/admin/update-profile', methods=['PATCH'])
 @jwt_required()
 def update_admin_profile():

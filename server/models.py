@@ -5,6 +5,7 @@ from server import db, bcrypt
 
 # User Model
 class User(db.Model):
+    __table_args__ = {'extend_existing': True}
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
@@ -90,7 +91,7 @@ class Charity(db.Model):
     
     donations = db.relationship('Donation', backref='charity', lazy=True)
     stories = db.relationship('Story', backref='charity', lazy=True)
-    beneficiaries = db.relationship('Beneficiary', backref='charity', lazy=True)
+    beneficiaries = db.relationship('Beneficiary', backref='charity_owner', lazy=True)
 
     @classmethod
     @jwt_required()
@@ -306,13 +307,14 @@ class Story(db.Model):
 # Beneficiary Model
 class Beneficiary(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    charity_id = db.Column(db.Integer, db.ForeignKey('charity.id'), nullable=False)
+    charity_id = db.Column(db.Integer, db.ForeignKey('charity.id', ondelete='CASCADE'), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=True)
     location = db.Column(db.String(200), nullable=True)
     needs = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
 
     @classmethod
     @jwt_required()
