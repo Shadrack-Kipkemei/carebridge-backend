@@ -503,36 +503,51 @@ def delete_donation(donation_id):
 
 from werkzeug.utils import secure_filename
 
-@app.route('/profile', methods=['PATCH'])
+@app.route('/profile', methods=['GET', 'PATCH', 'OPTIONS'])
 @jwt_required()
 def profile_settings():
+    if request.method == 'OPTIONS':
+        # Handle preflight request
+        return jsonify(), 200
+
     current_user_id = int(get_jwt_identity())
     user = User.query.get(current_user_id)
 
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    # Handle file upload
-    if 'profile_picture' in request.files:
-        file = request.files['profile_picture']
-        if file.filename != '':
-            filename = secure_filename(file.filename)
-            file_path = os.path.join(UPLOAD_FOLDER, filename)
-            file.save(file_path)
-            user.profile_picture = file_path
+    if request.method == 'GET':
+        # Return the current profile data
+        return jsonify({
+            "username": user.username,
+            "email": user.email,
+            "is_anonymous": user.is_anonymous if hasattr(user, 'is_anonymous') else False,  # Default to False if not present
+            "receive_reminders": user.receive_reminders if hasattr(user, 'receive_reminders') else False,  # Default to False if not present
+            "profile_picture": user.profile_picture  # Include profile picture in the response
+        }), 200
 
-    # Update other fields
-    data = request.form
-    if "username" in data:
-        user.username = data["username"]
-    if "email" in data:
-        user.email = data["email"]
-    if "password" in data and data["password"]:
-        user.password = bcrypt.generate_password_hash(data["password"]).decode('utf-8')
-    if "is_anonymous" in data:
-        user.is_anonymous = data["is_anonymous"].lower() == "true"
-    if "receive_reminders" in data:
-        user.receive_reminders = data["receive_reminders"].lower() == "true"
+    elif request.method == 'PATCH':
+        # Update profile data
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        # Update fields if provided
+        if "username" in data:
+            user.username = data["username"]
+        if "email" in data:
+            user.email = data["email"]
+        if "password" in data and data["password"]:  # Only update password if it's provided and non-empty
+            user.password = bcrypt.generate_password_hash(data["password"]).decode('utf-8')
+        if "is_anonymous" in data:
+            user.is_anonymous = data["is_anonymous"]
+        if "receive_reminders" in data:
+            user.receive_reminders = data["receive_reminders"]
+        if "profile_picture" in data:  # Update profile picture if provided
+            user.profile_picture = data["profile_picture"]
+
+        db.session.commit()
+        return jsonify({"message": "Profile updated successfully"}), 200
 
 @app.route('/send-reminders', methods=['POST'])
 def send_reminders():
@@ -870,7 +885,6 @@ def update_settings():
 
     return jsonify({"message": "Settings updated successfully"}), 200
 
-<<<<<<< HEAD
 @admin_bp.route('/update-admin-profile', methods=['PATCH'])
 @jwt_required()
 def update_main_admin_profile():
@@ -1075,7 +1089,6 @@ def get_recent_activities():
 
     # Return the combined and sorted list of activities
     return jsonify(result)
-=======
     donations = db.session.query(
         db.func.date_trunc('month', Donation.timestamp).label('month'),
         db.func.sum(Donation.amount).label('total')
@@ -1087,7 +1100,7 @@ def get_recent_activities():
     return jsonify({"labels": labels, "values": values})
 
 @app.route("/api/recent-activities", methods=["GET"])
-def get_recent_activities():
+def get_recent_activities_v2():
     activities = ActivityLog.query.order_by(ActivityLog.timestamp.desc()).limit(10).all()
     return jsonify([
         {"message": activity.message, "timestamp": activity.timestamp.strftime("%Y-%m-%d %H:%M")}
