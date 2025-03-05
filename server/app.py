@@ -11,6 +11,7 @@ from server.models import db, User, Charity, Donation, Category, Beneficiary, St
 from flask_jwt_extended import create_access_token
 from datetime import datetime
 from flask_cors import CORS 
+import paypalrestsdk
 
 # Initialize Flask App
 app = Flask(__name__, instance_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'instance'))
@@ -25,6 +26,15 @@ mail = Mail(app)
 s = URLSafeTimedSerializer("your_secret_key")  # Token generator
 
 CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}}, supports_credentials=True)
+
+
+# ------------------- PAYPAL -------------------
+# Initialize PayPal
+paypalrestsdk.configure({
+    "mode": app.config['PAYPAL_MODE'],  # 'sandbox' or 'live'
+    "client_id": app.config['PAYPAL_CLIENT_ID'],
+    "client_secret": app.config['PAYPAL_CLIENT_SECRET']
+})
 
 
 # ------------------- HELPER FUNCTIONS -------------------
@@ -416,6 +426,77 @@ def delete_donation(donation_id):
     db.session.delete(donation)
     db.session.commit()
     return jsonify({"message": "Donation deleted successfully"}), 200
+
+
+# ------------------- PAYMENTS -------------------
+
+@app.route('/create-paypal-payment', methods=['POST'])
+@jwt_required()
+def create_paypal_payment():
+    data = request.get_json()
+    amount = data['amount']  # Amount in USD
+
+    payment = paypalrestsdk.Payment({
+        "intent": "sale",
+        "payer": {
+            "payment_method": "paypal"
+        },
+        "transactions": [
+            {
+                "amount": {
+                    "total": amount,
+                    "currency": "USD"
+                },
+                "description": "Donation to Charity"
+            }
+        ],
+        "redirect_urls": {
+            "return_url": "http://localhost:3000/success",  # Replace with your frontend success URL
+            "cancel_url": "http://localhost:3000/cancel"  # Replace with your frontend cancel URL
+        }
+    })
+
+    if payment.create():
+        return jsonify({
+            'paymentID': payment.id,
+            'redirectURL': next(link.href for link in payment.links if link.method == 'REDIRECT')
+        }), 200
+    else:
+        return jsonify(error=payment.error), 400
+
+@app.route('/execute-paypal-payment', methods=['POST'])
+@jwt_required()
+def execute_paypal_payment():
+    data = request.get_json()
+    payment_id = data['paymentID']
+    payer_id = data['payerID']
+    donation_id = data['donation_id']
+    amount = float(data['amount'])
+
+    payment = paypalrestsdk.Payment.find(payment_id)
+
+    if payment.execute({"payer_id": payer_id}):
+        # Create a transaction record
+        transaction = Transaction(
+            donation_id=donation_id,
+            amount=amount,
+            status='success',
+            payment_method='paypal',
+            transaction_reference=payment_id,
+            created_at=datetime.utcnow()
+        )
+        db.session.add(transaction)
+        db.session.commit()
+
+        return jsonify({
+            'message': 'Payment successful',
+            'transaction_id': transaction.id
+        }), 200
+    else:
+        return jsonify(error=payment.error), 400
+
+
+# ------------------- PROFILE -------------------
 
 
 @app.route('/profile', methods=['GET', 'PATCH', 'OPTIONS'])

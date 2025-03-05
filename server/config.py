@@ -24,3 +24,8 @@ class Config:
     MAIL_USERNAME = os.getenv('MAIL_USERNAME')
     MAIL_PASSWORD = os.getenv('MAIL_PASSWORD')
     MAIL_DEFAULT_SENDER = os.getenv('MAIL_DEFAULT_SENDER')
+
+    # PayPal settings
+    PAYPAL_CLIENT_ID = os.getenv('PAYPAL_CLIENT_ID')
+    PAYPAL_CLIENT_SECRET = os.getenv('PAYPAL_CLIENT_SECRET')
+    PAYPAL_MODE = os.getenv('PAYPAL_MODE', 'sandbox') 
