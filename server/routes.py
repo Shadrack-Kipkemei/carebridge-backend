@@ -193,6 +193,41 @@ def create_charity():
         "status": "approved" if user.role == 'admin' else "pending"
     }), 201
 
+
+@api.route("/api/charity/<int:charity_id>", methods=["GET"])
+def get_charity(charity_id):
+    charity = Charity.query.get(charity_id)
+    if not charity:
+        return jsonify({"error": "Charity not found"}), 404
+    return jsonify(charity.to_dict())
+
+@api.route("/api/charity/<int:charity_id>", methods=["PUT"])
+def update_charity(charity_id):
+    data = request.json
+    charity = Charity.query.get(charity_id)
+    if not charity:
+        return jsonify({"error": "Charity not found"}), 404
+
+    charity.name = data.get("name", charity.name)
+    charity.description = data.get("description", charity.description)
+    charity.email = data.get("email", charity.email)
+    charity.logo = data.get("logo", charity.logo)
+    
+    if "password" in data and data["password"]:
+        charity.set_password(data["password"])
+
+    db.session.commit()
+    return jsonify({"message": "Charity updated successfully"})
+
+@api.route("/api/charity/<int:charity_id>", methods=["DELETE"])
+def delete_charity(charity_id):
+    charity = Charity.query.get(charity_id)
+    if not charity:
+        return jsonify({"error": "Charity not found"}), 404
+
+    db.session.delete(charity)
+    db.session.commit()
+    return jsonify({"message": "Charity account deleted successfully"})
 # ------------------- DONATIONS -------------------
 @api.route('/api/donations/recurring', methods=['POST'])
 @jwt_required()

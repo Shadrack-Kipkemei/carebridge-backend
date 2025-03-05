@@ -2,7 +2,10 @@ from datetime import datetime, timedelta
 from flask import jsonify, request
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from server import db, bcrypt
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash, check_password_hash
 
+db = SQLAlchemy()
 # User Model
 class User(db.Model):
     __tablename__ = "user"
@@ -71,89 +74,163 @@ class User(db.Model):
         }), 200
 
 # Charity Model
+
 class Charity(db.Model):
+    __tablename__ = "charities"
+
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True, nullable=False)
-    description = db.Column(db.Text, nullable=True)
-    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    logo = db.Column(db.String(255), nullable=True)  # Store logo URL
+    owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_approved = db.Column(db.Boolean, default=False)
-    
-    donations = db.relationship('Donation', backref='charity', lazy=True)
-    stories = db.relationship('Story', backref='charity', lazy=True)
-    beneficiaries = db.relationship('Beneficiary', backref='charity', lazy=True)
+
+    donations = db.relationship("Donation", backref="charity", lazy="dynamic")
+    stories = db.relationship("Story", backref="charity", lazy="dynamic")
+    beneficiaries = db.relationship("Beneficiary", backref="charity", lazy="dynamic")
 
     def get_total_donations(self):
         """Get total donation amount for the charity"""
-        return sum(donation.amount for donation in self.donations)
+        return db.session.query(func.sum(Donation.amount)).filter(Donation.charity_id == self.id).scalar() or 0
 
     def get_total_donors(self):
         """Get total unique donors for the charity"""
-        return len(set(donation.donor_id for donation in self.donations))
+        return db.session.query(func.count(func.distinct(Donation.donor_id))).filter(Donation.charity_id == self.id).scalar() or 0
 
     def get_recent_donations(self, limit=5):
         """Get recent donations for the charity"""
-        recent = sorted(self.donations, key=lambda x: x.created_at, reverse=True)[:limit]
-        return [{
-            'id': donation.id,
-            'amount': donation.amount,
-            'date': donation.created_at.isoformat(),
-            'donor_name': donation.donor.username if (donation.donor and not donation.is_anonymous) else 'Anonymous',
-            'type': donation.donation_type,
-            'status': donation.status
-        } for donation in recent]
+        recent_donations = (
+            Donation.query.filter_by(charity_id=self.id)
+            .order_by(Donation.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+        return [
+            {
+                "id": donation.id,
+                "amount": donation.amount,
+                "date": donation.created_at.isoformat(),
+                "donor_name": donation.donor.username if (donation.donor and not donation.is_anonymous) else "Anonymous",
+                "type": donation.donation_type,
+                "status": donation.status,
+            }
+            for donation in recent_donations
+        ]
 
     def get_dashboard_data(self):
         """Get comprehensive dashboard data for the charity"""
         return {
-            'id': self.id,
-            'name': self.name,
-            'description': self.description,
-            'total_donations': self.get_total_donations(),
-            'total_donors': self.get_total_donors(),
-            'recent_donations': self.get_recent_donations(),
-            'beneficiaries_count': len(self.beneficiaries),
-            'stories_count': len(self.stories)
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "logo": self.logo,
+            "total_donations": self.get_total_donations(),
+            "total_donors": self.get_total_donors(),
+            "recent_donations": self.get_recent_donations(),
+            "beneficiaries_count": self.beneficiaries.count(),
+            "stories_count": self.stories.count(),
         }
 
     @classmethod
     @jwt_required()
     def create_charity(cls):
+        """Create a new charity"""
         data = request.get_json()
         current_user_id = get_jwt_identity()
         user = User.query.get(current_user_id)
 
-        if user.role not in ['admin', 'charity']:
+        if not user or user.role not in ["admin", "charity"]:
             return jsonify({"error": "Unauthorized to create charity"}), 403
 
-        if not data.get("name") or not data.get("description"):
-            return jsonify({"error": "Name and description are required"}), 400
+        if not data.get("name") or len(data["name"]) < 3:
+            return jsonify({"error": "Charity name must be at least 3 characters"}), 400
 
-        charity = cls(
+        if not data.get("description") or len(data["description"]) < 10:
+            return jsonify({"error": "Description must be at least 10 characters"}), 400
+
+        existing_charity = Charity.query.filter_by(name=data["name"]).first()
+        if existing_charity:
+            return jsonify({"error": "A charity with this name already exists"}), 409
+
+        new_charity = cls(
             name=data["name"],
             description=data["description"],
+            logo=data.get("logo"),  # Optional logo
             owner_id=current_user_id,
-            is_approved=user.role == 'admin'
+            is_approved=user.role == "admin",
         )
-        
-        db.session.add(charity)
+
+        db.session.add(new_charity)
         db.session.commit()
 
         return jsonify({
             "message": "Charity created successfully",
-            "status": "approved" if user.role == 'admin' else "pending"
+            "status": "approved" if user.role == "admin" else "pending",
+            "charity": new_charity.get_dashboard_data(),
         }), 201
 
     @classmethod
-    def get_charities(cls):
-        charities = cls.query.filter_by(is_approved=True).all()
-        return jsonify([{
+    @jwt_required()
+    def update_charity(cls, charity_id):
+        """Update an existing charity (only owner or admin)"""
+        data = request.get_json()
+        current_user_id = get_jwt_identity()
+        charity = cls.query.get(charity_id)
+
+        if not charity:
+            return jsonify({"error": "Charity not found"}), 404
+
+        if charity.owner_id != current_user_id and User.query.get(current_user_id).role != "admin":
+            return jsonify({"error": "Unauthorized"}), 403
+
+        charity.name = data.get("name", charity.name)
+        charity.description = data.get("description", charity.description)
+        charity.logo = data.get("logo", charity.logo)
+
+        db.session.commit()
+        return jsonify({"message": "Charity updated successfully", "charity": charity.get_dashboard_data()}), 200
+
+    @classmethod
+    def get_charities(cls, page=1, per_page=10):
+        """Fetch paginated list of approved charities"""
+        charities_query = cls.query.filter_by(is_approved=True)
+        paginated_charities = charities_query.paginate(page=page, per_page=per_page, error_out=False)
+
+        charities_list = [{
             "id": c.id,
             "name": c.name,
             "description": c.description,
+            "logo": c.logo,
             "owner_id": c.owner_id,
             "created_at": c.created_at.isoformat()
-        } for c in charities]), 200
+        } for c in paginated_charities.items]
+
+        return jsonify({
+            "charities": charities_list,
+            "total_pages": paginated_charities.pages,
+            "current_page": paginated_charities.page
+        }), 200
+
+    @classmethod
+    @jwt_required()
+    def delete_charity(cls, charity_id):
+        """Delete a charity (only owner or admin)"""
+        current_user_id = get_jwt_identity()
+        charity = cls.query.get(charity_id)
+
+        if not charity:
+            return jsonify({"error": "Charity not found"}), 404
+
+        if charity.owner_id != current_user_id and User.query.get(current_user_id).role != "admin":
+            return jsonify({"error": "Unauthorized"}), 403
+
+        db.session.delete(charity)
+        db.session.commit()
+
+        return jsonify({"message": "Charity deleted successfully"}), 200
+
 
 # Donation Model
 class Donation(db.Model):
