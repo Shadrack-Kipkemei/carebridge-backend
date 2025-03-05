@@ -26,6 +26,16 @@ s = URLSafeTimedSerializer("your_secret_key")  # Token generator
 
 CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}}, supports_credentials=True)
 
+
+# ------------------- HELPER FUNCTIONS -------------------
+# Helper function to get donor email
+def get_donor_email(donor_id):
+    donor = User.query.get(donor_id)
+    if donor:
+        return donor.email
+    raise ValueError("Donor email not found")
+
+
 # ------------------- ROUTES -------------------
 
 @app.route('/')
@@ -242,6 +252,7 @@ def create_donation():
             else:
                 print("next_donation_date is not a valid string, setting to None")
 
+        # Create the donation
         donation = Donation(
             donor_id=current_user_id,
             donor_name=data["donor_name"],  
@@ -257,6 +268,29 @@ def create_donation():
 
         db.session.add(donation)
         db.session.commit()
+
+        # Send an email notification if it's a recurring donation
+        if donation.frequency:
+            donor_email = get_donor_email(donation.donor_id)
+            subject = "Thank You for Your Recurring Donation"
+            body = f"""
+            Dear {donation.donor_name},
+
+            Thank you for setting up a recurring donation of ${donation.amount} to Charity ID {donation.charity_id}.
+
+            Your donation will be processed on the following schedule:
+            - Frequency: {donation.frequency}
+            - Next Donation Date: {donation.next_donation_date.strftime("%Y-%m-%d") if donation.next_donation_date else "N/A"}
+
+            We appreciate your support!
+
+            Best regards,
+            Your Charity Team
+            """
+
+            msg = Message(subject, recipients=[donor_email], body=body)
+            mail.send(msg)
+            print(f"Email sent to {donor_email}")  # Debugging step
 
         return jsonify({
             "message": "Donation created successfully",
@@ -431,6 +465,53 @@ def profile_settings():
         return jsonify({"message": "Profile updated successfully"}), 200
 
 
+# ------------------- REMINDERS -------------------
+
+
+@app.route('/send-reminders', methods=['POST'])
+def send_reminders():
+    try:
+        today = datetime.today().date()
+        recurring_donations = Donation.query.filter(
+            Donation.frequency.isnot(None),
+            Donation.next_donation_date == today
+        ).all()
+
+        for donation in recurring_donations:
+            # Send email reminder
+            donor_email = get_donor_email(donation.donor_id)  # Implement this function
+            subject = "Reminder: Upcoming Donation"
+            body = f"""
+            Dear {donation.donor_name},
+
+            This is a reminder that your recurring donation of ${donation.amount} is scheduled for today.
+
+            Thank you for your continued support!
+
+            Best regards,
+            Your Charity Team
+            """
+
+            msg = Message(subject, recipients=[donor_email], body=body)
+            mail.send(msg)
+
+            # Update the next_donation_date based on frequency
+            if donation.frequency == "weekly":
+                donation.next_donation_date = today + timedelta(days=7)
+            elif donation.frequency == "monthly":
+                donation.next_donation_date = today + timedelta(days=30)
+            elif donation.frequency == "quarterly":
+                donation.next_donation_date = today + timedelta(days=90)
+            elif donation.frequency == "yearly":
+                donation.next_donation_date = today + timedelta(days=365)
+
+            db.session.commit()
+
+        return jsonify({"message": "Reminders sent successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ------------------- BENEFICIARIES -------------------
 
 @app.route('/beneficiaries', methods=['POST'])
@@ -476,7 +557,7 @@ def create_beneficiary():
             "created_at": beneficiary.created_at.isoformat()
         }
     }), 201
-    
+
 
 @app.route('/donor/beneficiary-stories', methods=['GET'])
 @jwt_required()
