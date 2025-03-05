@@ -13,6 +13,9 @@ class User(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_anonymous = db.Column(db.Boolean, default=False)
+    receive_reminders = db.Column(db.Boolean, default=False)
+    profile_picture = db.Column(db.Text)  # Store base64 encoded image or file path
 
     donations = db.relationship('Donation', back_populates='donor', lazy=True, cascade='all, delete-orphan')
     charities = db.relationship('Charity', backref='owner', lazy=True, cascade='all, delete-orphan')

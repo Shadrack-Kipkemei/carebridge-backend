@@ -400,7 +400,8 @@ def profile_settings():
             "username": user.username,
             "email": user.email,
             "is_anonymous": user.is_anonymous if hasattr(user, 'is_anonymous') else False,  # Default to False if not present
-            "receive_reminders": user.receive_reminders if hasattr(user, 'receive_reminders') else False  # Default to False if not present
+            "receive_reminders": user.receive_reminders if hasattr(user, 'receive_reminders') else False,  # Default to False if not present
+            "profile_picture": user.profile_picture  # Include profile picture in the response
         }), 200
 
     elif request.method == 'PATCH':
@@ -420,11 +421,13 @@ def profile_settings():
             user.is_anonymous = data["is_anonymous"]
         if "receive_reminders" in data:
             user.receive_reminders = data["receive_reminders"]
+        if "profile_picture" in data:  # Update profile picture if provided
+            user.profile_picture = data["profile_picture"]
 
         db.session.commit()
         return jsonify({"message": "Profile updated successfully"}), 200
-        
 
+        
 # ------------------- CATEGORIES -------------------
 
 @app.route('/categories', methods=['GET'])
