@@ -1,5 +1,5 @@
 import os
-from flask import Flask, jsonify, request, url_for, redirect 
+from flask import Flask, jsonify, request, url_for, redirect , Blueprint
 from flask_mail import Mail, Message 
 from itsdangerous import URLSafeTimedSerializer
 from flask_sqlalchemy import SQLAlchemy
@@ -10,21 +10,22 @@ from server.config import Config
 from server.models import db, User, Charity, Donation, Category, Beneficiary, Story
 from flask_jwt_extended import create_access_token
 from datetime import datetime
-from flask_cors import CORS 
-
+from flask_cors import CORS, cross_origin
+from authlib.integrations.flask_client import OAuth
 # Initialize Flask App
 app = Flask(__name__, instance_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'instance'))
 app.config.from_object(Config)
-
+# Initialize OAuth
+oauth = OAuth(app)
 # Initialize Extensions
 db.init_app(app)
+
 bcrypt = Bcrypt(app)
 jwt = JWTManager(app)
 migrate = Migrate(app, db)
 mail = Mail(app)
 s = URLSafeTimedSerializer("your_secret_key")  # Token generator
-
-CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}}, supports_credentials=True)
+CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}}, supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
 
 
 # ------------------- HELPER FUNCTIONS -------------------
@@ -36,6 +37,66 @@ def get_donor_email(donor_id):
     raise ValueError("Donor email not found")
 
 
+# Google OAuth Configuration
+google = oauth.register(
+    name="google",
+    client_id=app.config["GOOGLE_CLIENT_ID"],
+    client_secret=app.config["GOOGLE_CLIENT_SECRET"],
+    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+    client_kwargs={"scope": "openid email profile"}
+)
+
+# ------------------- GOOGLE OAUTH -------------------
+
+@app.route("/auth/google")
+def google_login():
+    return google.authorize_redirect(url_for("google_auth_callback", _external=True))
+
+@app.route("/auth/google/callback")
+def google_auth_callback():
+    try:
+        token = google.authorize_access_token()  # Exchange code for token
+        if not token:
+            return redirect("http://localhost:3000/login?error=missing_token")
+
+        # Fetch user info
+        user_info = google.get("https://www.googleapis.com/oauth2/v3/userinfo").json()
+        print("User info:", user_info)  # Debugging
+
+        email = user_info.get("email")
+        name = user_info.get("name")
+        google_id = user_info.get("sub")
+
+        # Check if user exists in the database
+        user = User.query.filter((User.email == email) | (User.google_id == google_id)).first()
+        if not user:
+            # Create a new user with a default role (donor)
+            user = User(
+                username=name,
+                email=email,
+                google_id=google_id,
+                role="donor"  # Default role
+            )
+            db.session.add(user)
+            db.session.commit()
+
+        # Generate JWT token for the user
+        access_token = create_access_token(identity=user.id)
+
+        # Redirect based on user's role
+        if user.role == "admin":
+            return redirect(f"http://localhost:3000/admin-dashboard?token={access_token}")
+        elif user.role == "charity":
+            return redirect(f"http://localhost:3000/charity-dashboard?token={access_token}")
+        elif user.role == "donor":
+            return redirect(f"http://localhost:3000/donor-dashboard?token={access_token}")
+        else:
+            # If no role is assigned, redirect to role selection page
+            return redirect(f"http://localhost:3000/select-role?token={access_token}")
+
+    except Exception as e:
+        print("Google OAuth Error:", str(e))  # Log the error
+        return redirect("http://localhost:3000/login?error=oauth_error")
 # ------------------- ROUTES -------------------
 
 @app.route('/')
@@ -671,44 +732,269 @@ def create_category():
     db.session.add(category)
     db.session.commit()
     return jsonify({"message": "Category created successfully"}), 201
+@app.route('/dashboard-stats', methods=['GET'])
+def get_dashboard_stats():
+    total_raised = db.session.query(db.func.sum(Donation.amount)).scalar() or 0
+    active_users = User.query.count()
+    
+    return jsonify({
+        "total_raised": total_raised,
+        "active_users": active_users
+    }), 200
+
 
 # ------------------- ADMIN ACTIONS -------------------
-
-@app.route('/admin/approve_donation/<int:donation_id>', methods=['POST'])
+# Routes
+admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
+@admin_bp.route('/charity-applications', methods=['GET'])
 @jwt_required()
-def approve_donation(donation_id):
+def get_charity_applications():
     current_user_id = get_jwt_identity()
     user = User.query.get(current_user_id)
 
-    if user.role != "admin":
+    if user.role != 'admin':
         return jsonify({"error": "Unauthorized"}), 403
 
-    donation = Donation.query.get(donation_id)
-    if not donation:
-        return jsonify({"error": "Donation not found"}), 404
+    pending_charities = Charity.query.filter_by(is_approved=False).all()
+    applications = [{
+        "id": charity.id,
+        "name": charity.name,
+        "description": charity.description,
+        "status": "pending"
+    } for charity in pending_charities]
 
-    donation.status = "approved"
-    db.session.commit()
-    return jsonify({"message": "Donation approved"}), 200
+    return jsonify(applications), 200
 
-@app.route('/admin/reject_donation/<int:donation_id>', methods=['POST'])
+@admin_bp.route('/charity-applications/<int:id>', methods=['PATCH'])
 @jwt_required()
-def reject_donation(donation_id):
+def update_charity_application(id):
     current_user_id = get_jwt_identity()
     user = User.query.get(current_user_id)
 
-    if user.role != "admin":
+    if user.role != 'admin':
         return jsonify({"error": "Unauthorized"}), 403
 
-    donation = Donation.query.get(donation_id)
-    if not donation:
-        return jsonify({"error": "Donation not found"}), 404
+    data = request.get_json()
+    status = data.get('status')
 
-    donation.status = "rejected"
+    if status not in ['approved', 'rejected']:
+        return jsonify({"error": "Invalid status"}), 400
+
+    charity = Charity.query.get(id)
+    if not charity:
+        return jsonify({"error": "Charity not found"}), 404
+
+    charity.is_approved = (status == 'approved')
     db.session.commit()
-    return jsonify({"message": "Donation rejected"}), 200
 
-# ------------------- RUN APP -------------------
+    return jsonify({"message": f"Application {status}"}), 200
+@admin_bp.route('/charities', methods=['GET'])
+@cross_origin()
+@jwt_required()
+def get_charities():
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+
+    if not user or user.role != 'admin':
+        return jsonify({"error": "Unauthorized"}), 403
+
+    charities = Charity.query.all()
+    charity_list = [{"id": c.id, "name": c.name, "description": c.description} for c in charities]
+
+    return jsonify(charity_list), 200
+
+@admin_bp.route('/charities/<int:id>', methods=['DELETE'])
+@jwt_required()
+def delete_charity(id):
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+
+    if user.role != 'admin':
+        return jsonify({"error": "Unauthorized"}), 403
+
+    charity = Charity.query.get(id)
+    if not charity:
+        return jsonify({"error": "Charity not found"}), 404
+
+    db.session.delete(charity)
+    db.session.commit()
+
+    return jsonify({"message": "Charity deleted successfully"}), 200
+@admin_bp.route('/settings', methods=['PATCH'])
+@jwt_required()
+def update_settings():
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+
+    if user.role != 'admin':
+        return jsonify({"error": "Unauthorized"}), 403
+
+    data = request.get_json()
+    donation_reminder = data.get('donation_reminder')
+
+    if donation_reminder is not None:
+        user.notification_preferences.donation_reminders = donation_reminder
+        db.session.commit()
+
+    return jsonify({"message": "Settings updated successfully"}), 200
+
+@admin_bp.route('/update-profile', methods=['PATCH'])
+@jwt_required()
+def update_profile():
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+
+    if user.role != 'admin':
+        return jsonify({"error": "Unauthorized"}), 403
+
+    data = request.form
+    username = data.get('username')
+    password = data.get('password')
+    profile_picture = request.files.get('profilePicture')
+
+    if username:
+        user.username = username
+
+    if password:
+        user.set_password(password)
+
+    if profile_picture:
+        # Handle profile picture upload (e.g., save to disk or cloud storage)
+        pass
+
+    db.session.commit()
+
+    return jsonify({"message": "Profile updated successfully"}), 200
+@admin_bp.route('/donation-statistics', methods=['GET', 'OPTIONS'])
+@cross_origin()
+@jwt_required()
+def get_donation_statistics():
+    if request.method == 'OPTIONS':
+        return jsonify({"message": "OK"}), 200  # Handle preflight request
+
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+
+    if not user or user.role != 'admin':
+        return jsonify({"error": "Unauthorized"}), 403
+
+    statistics = {
+        "labels": ["January", "February", "March", "April", "May"],
+        "values": [1000, 1500, 2000, 1800, 2200]
+    }
+
+    return jsonify(statistics), 200
+# Get Current User Details
+@app.route("/user", methods=["GET"])
+@jwt_required()
+def get_current_user():
+    current_user_email = get_jwt_identity()  # Get user email from JWT
+
+    # Find user in the database
+    user = User.query.filter_by(email=current_user_email).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    # Return user details
+    return jsonify({
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "role": user.role
+    }), 200
+
+
+@admin_bp.route('/users/<int:user_id>', methods=['GET'])
+@jwt_required()
+def get_user(user_id):
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+
+    if user.role != 'admin':
+        return jsonify({"error": "Unauthorized"}), 403
+
+    target_user = User.query.get(user_id)
+    if not target_user:
+        return jsonify({"error": "User not found"}), 404
+
+    return jsonify({
+        "id": target_user.id,
+        "username": target_user.username,
+        "email": target_user.email,
+        "role": target_user.role
+    }), 200
+
+@app.route('/users/<int:id>', methods=['DELETE'])
+@jwt_required()  # Ensure only authorized users can delete users
+def delete_user(id):
+    user = User.query.get(id)
+    
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    db.session.delete(user)
+    db.session.commit()
+    
+    return jsonify({'message': 'User deleted successfully'}), 200
+#stast for charitiescount total dons and users count
+@app.route("/api/stats", methods=["GET"])
+def get_stats():
+    charities_count = Charity.query.count()
+    total_donations = db.session.query(db.func.sum(Donation.amount)).scalar() or 0
+    users_count = User.query.count()
+    
+    return jsonify({
+        "charities": charities_count,
+        "donations": total_donations,
+        "users": users_count
+    })
+# Route to get donation growth data
+@app.route("/api/donation-data", methods=["GET"])
+def get_donation_data():
+    donations = db.session.query(
+        db.func.date_trunc('month', Donation.timestamp).label('month'),
+        db.func.sum(Donation.amount).label('total')
+    ).group_by(db.func.date_trunc('month', Donation.timestamp)).order_by('month').all()
+    
+    labels = [d.month.strftime("%B %Y") if isinstance(d.month, datetime) else str(d.month) for d in donations]
+    values = [d.total for d in donations]
+
+    return jsonify({"labels": labels, "values": values})
+
+@app.route("/api/recent-activities", methods=["GET"])
+def get_recent_activities():
+    activities = ActivityLog.query.order_by(ActivityLog.timestamp.desc()).limit(10).all()
+    return jsonify([
+        {"message": activity.message, "timestamp": activity.timestamp.strftime("%Y-%m-%d %H:%M")}
+        for activity in activities
+    ])
+@admin_bp.route('/api/admin/update-profile', methods=['PATCH'])
+@jwt_required()
+def update_admin_profile():
+    user_id = get_jwt_identity()  # Get logged-in user's ID
+    admin = User.query.get(user_id)
+
+    if not admin or admin.role != "admin":
+        return jsonify({"error": "Unauthorized"}), 403  # Only admins can update profile
+
+    data = request.get_json()
+
+    if "username" in data:
+        admin.username = data["username"]
+    if "email" in data:
+        if User.query.filter_by(email=data["email"]).first():
+            return jsonify({"error": "Email already in use"}), 400
+        admin.email = data["email"]
+    if "password" in data:
+        admin.password_hash = generate_password_hash(data["password"])  # Hash new password
+
+    db.session.commit()
+    return jsonify({"message": "Admin profile updated successfully"}), 200
+# Registering the Blueprint
+
+app.register_blueprint(admin_bp, url_prefix="/api/admin")
+
+# # ------------------- RUN APP -------------------
 
 if __name__ == "__main__":
     flask_app.run(debug=True)
