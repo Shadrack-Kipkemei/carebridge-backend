@@ -15,18 +15,13 @@ flask-serializer = "*"
 flask-mail = "*"
 itsdangerous = "*"
 python-dotenv = "*"
-<<<<<<< HEAD
 apscheduler = "*"
-=======
->>>>>>> philip/admin
 flask-cors = "*"
 authlib = "*"
 requests = "*"
 faker = "*"
-<<<<<<< HEAD
-=======
 
->>>>>>> philip/admin
+
 [dev-packages]
 
 [requires]
