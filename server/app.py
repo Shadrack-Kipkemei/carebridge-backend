@@ -809,7 +809,7 @@ def get_charities():
 
     return jsonify(charity_list), 200
 
-<<<<<<< HEAD
+
 # Delete a charity (admin-only)
 @app.route('/api/admin/charities/<int:id>', methods=['DELETE'])
 @jwt_required()
