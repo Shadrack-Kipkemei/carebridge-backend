@@ -266,7 +266,8 @@ def create_donation():
                 "donor_id": donation.donor_id,
                 "charity_id": donation.charity_id,
                 "beneficiary_id": donation.beneficiary_id,
-                "status": donation.status
+                "status": donation.status,
+                "next_donation_date": donation.next_donation_date.strftime("%Y-%m-%d") if donation.next_donation_date else None
             }
         }), 201
     except ValueError as e:
@@ -275,6 +276,7 @@ def create_donation():
     except Exception as e:
         print(f"Exception: {str(e)}")  # Debugging step
         return jsonify({"error": f"Internal Server Error: {str(e)}"}), 500
+
 
 @app.route('/donations/<int:donation_id>', methods=['GET'])
 @jwt_required()
@@ -312,6 +314,7 @@ def get_all_donations():
             "anonymous": donation.is_anonymous,  
             "donor_name": donation.donor_name if donation.donor_name and not donation.is_anonymous else None,
             "next_donation_date": donation.next_donation_date.strftime("%Y-%m-%d") if donation.next_donation_date else None,
+            "frequency": donation.frequency, 
         }
         for donation in donations
     ]), 200
