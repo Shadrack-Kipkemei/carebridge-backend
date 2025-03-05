@@ -7,7 +7,7 @@ from flask_migrate import Migrate
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from server.config import Config
-from server.models import db, User, Charity, Donation, Category
+from server.models import db, User, Charity, Donation, Category, Beneficiary, Story
 from flask_jwt_extended import create_access_token
 from datetime import datetime
 from flask_cors import CORS 
@@ -429,6 +429,145 @@ def profile_settings():
 
         db.session.commit()
         return jsonify({"message": "Profile updated successfully"}), 200
+
+
+# ------------------- BENEFICIARIES -------------------
+
+@app.route('/beneficiaries', methods=['POST'])
+@jwt_required()
+def create_beneficiary():
+    # Get the current user's ID from the JWT token
+    current_user_id = get_jwt_identity()
+
+    # Get the request data
+    data = request.get_json()
+
+    # Validate required fields
+    if not data.get('charity_id') or not data.get('name'):
+        return jsonify({"error": "charity_id and name are required"}), 400
+
+    # Check if the charity exists and is owned by the current user
+    charity = Charity.query.filter_by(id=data['charity_id'], owner_id=current_user_id).first()
+    if not charity:
+        return jsonify({"error": "Charity not found or unauthorized"}), 404
+
+    # Create the beneficiary
+    beneficiary = Beneficiary(
+        charity_id=data['charity_id'],
+        name=data['name'],
+        description=data.get('description'),  # Optional field
+        location=data.get('location'),       # Optional field
+        needs=data.get('needs')              # Optional field
+    )
+
+    # Save to the database
+    db.session.add(beneficiary)
+    db.session.commit()
+
+    return jsonify({
+        "message": "Beneficiary created successfully",
+        "beneficiary": {
+            "id": beneficiary.id,
+            "charity_id": beneficiary.charity_id,
+            "name": beneficiary.name,
+            "description": beneficiary.description,
+            "location": beneficiary.location,
+            "needs": beneficiary.needs,
+            "created_at": beneficiary.created_at.isoformat()
+        }
+    }), 201
+    
+
+@app.route('/donor/beneficiary-stories', methods=['GET'])
+@jwt_required()
+def get_donor_beneficiary_stories():
+    current_user_id = int(get_jwt_identity())
+
+    # Fetch all charities the donor has donated to
+    donations = Donation.query.filter_by(donor_id=current_user_id).all()
+    charity_ids = {donation.charity_id for donation in donations}
+
+    if not charity_ids:
+        return jsonify({"error": "You have not donated to any charities yet."}), 404
+
+    # Fetch stories and beneficiaries for these charities
+    stories = Story.query.filter(Story.charity_id.in_(charity_ids)).order_by(Story.created_at.desc()).all()
+    beneficiaries = Beneficiary.query.filter(Beneficiary.charity_id.in_(charity_ids)).all()
+
+    # Format the response
+    response = {
+        "stories": [
+            {
+                "id": story.id,
+                "charity_id": story.charity_id,
+                "title": story.title,
+                "content": story.content,
+                "image_url": story.image_url,
+                "created_at": story.created_at.isoformat()
+            }
+            for story in stories
+        ],
+        "beneficiaries": [
+            {
+                "id": beneficiary.id,
+                "charity_id": beneficiary.charity_id,
+                "name": beneficiary.name,
+                "description": beneficiary.description,
+                "location": beneficiary.location,
+                "needs": beneficiary.needs,
+                "created_at": beneficiary.created_at.isoformat()
+            }
+            for beneficiary in beneficiaries
+        ]
+    }
+
+    return jsonify(response), 200
+
+
+# ------------------- STORIES -------------------
+
+@app.route('/stories', methods=['POST'])
+@jwt_required()
+def create_story():
+    # Get the current user's ID from the JWT token
+    current_user_id = get_jwt_identity()
+
+    # Get the request data
+    data = request.get_json()
+
+    # Validate required fields
+    if not data.get('charity_id') or not data.get('title') or not data.get('content'):
+        return jsonify({"error": "charity_id, title, and content are required"}), 400
+
+    # Check if the charity exists and is owned by the current user
+    charity = Charity.query.filter_by(id=data['charity_id'], owner_id=current_user_id).first()
+    if not charity:
+        return jsonify({"error": "Charity not found or unauthorized"}), 404
+
+    # Create the story
+    story = Story(
+        charity_id=data['charity_id'],
+        title=data['title'],
+        content=data['content'],
+        image_url=data.get('image_url')  # Optional field
+    )
+
+    # Save to the database
+    db.session.add(story)
+    db.session.commit()
+
+    return jsonify({
+        "message": "Story created successfully",
+        "story": {
+            "id": story.id,
+            "charity_id": story.charity_id,
+            "title": story.title,
+            "content": story.content,
+            "image_url": story.image_url,
+            "created_at": story.created_at.isoformat()
+        }
+    }), 201
+
 
         
 # ------------------- CATEGORIES -------------------
