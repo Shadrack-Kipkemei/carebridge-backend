@@ -21,6 +21,8 @@ paypalrestsdk = "*"
 authlib = "*"
 requests = "*"
 faker = "*"
+gunicorn = "*"
+
 [dev-packages]
 
 [requires]

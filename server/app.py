@@ -44,7 +44,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # ------------------- PAYPAL -------------------
 # Initialize PayPal
 paypalrestsdk.configure({
-    "mode": app.config['PAYPAL_MODE'],  # 'sandbox' or 'live'
+    "base_url": app.config['PAYPAL_BASE_URL'],  # 'sandbox' or 'live'
     "client_id": app.config['PAYPAL_CLIENT_ID'],
     "client_secret": app.config['PAYPAL_CLIENT_SECRET']
 })
@@ -516,70 +516,133 @@ def delete_donation(donation_id):
 
 # ------------------- PAYMENTS -------------------
 
+# Function to get PayPal Access Token
+def get_paypal_token():
+    auth_url = f"{app.config['PAYPAL_BASE_URL']}/v1/oauth2/token"
+    headers = {"Accept": "application/json", "Accept-Language": "en_US"}
+    data = {"grant_type": "client_credentials"}
+
+    response = requests.post(
+        auth_url,
+        auth=(app.config['PAYPAL_CLIENT_ID'], app.config['PAYPAL_CLIENT_SECRET']),
+        data=data,
+        headers=headers
+    )
+
+    if response.status_code == 200:
+        return response.json().get("access_token")
+    else:
+        print("PayPal Auth Failed:", response.status_code, response.text)  # Debugging
+        return None
+
+# Create PayPal Order
 @app.route('/create-paypal-payment', methods=['POST'])
 @jwt_required()
 def create_paypal_payment():
     data = request.get_json()
-    amount = data['amount']  # Amount in USD
+    print("Received data:", data)  # Log the incoming request data
 
-    payment = paypalrestsdk.Payment({
-        "intent": "sale",
-        "payer": {
-            "payment_method": "paypal"
-        },
-        "transactions": [
-            {
-                "amount": {
-                    "total": amount,
-                    "currency": "USD"
-                },
-                "description": "Donation to Charity"
-            }
-        ],
-        "redirect_urls": {
-            "return_url": "http://localhost:3000/success",  # Replace with your frontend success URL
-            "cancel_url": "http://localhost:3000/cancel"  # Replace with your frontend cancel URL
-        }
-    })
+    amount = data.get("amount")
+    currency = "USD"
+    charity_id = data.get("charity_id")  # Typo here: should be "charity_id"
+    payer_email = data.get("email")
+    is_anonymous = data.get("is_anonymous", False)
+    donor_name = None if is_anonymous else data.get("donor_name")
 
-    if payment.create():
-        return jsonify({
-            'paymentID': payment.id,
-            'redirectURL': next(link.href for link in payment.links if link.method == 'REDIRECT')
-        }), 200
+    # Validate required fields
+    if not amount or not charity_id or not payer_email:
+        print("Validation failed: Missing required fields")  # Log validation failure
+        return jsonify({"error": "Missing required fields (amount, charity_id, or email)."}), 400
+
+    # Ensure donor_name is provided for non-anonymous donations
+    if not is_anonymous and not donor_name:
+        print("Validation failed: Donor name is required for non-anonymous donations")  # Log validation failure
+        return jsonify({"error": "Donor name is required for non-anonymous donations."}), 400
+
+    # Save donation to database
+    new_donation = Donation(
+        amount=data["amount"],
+        donor_id=get_jwt_identity(),
+        charity_id=data["charity_id"],
+        category_id=data["category_id"],  # Add this line
+        is_anonymous=data.get("is_anonymous", False),
+        donor_name=data.get("donor_name"),
+        is_recurring=data.get("is_recurring", False),
+        frequency=data.get("frequency"),
+        next_donation_date=data.get("next_donation_date")
+    )
+    db.session.add(new_donation)
+    db.session.commit()
+
+    # Create PayPal Order
+    access_token = get_paypal_token()
+    if not access_token:
+        print("Failed to authenticate with PayPal")  # Log authentication failure
+        return jsonify({"error": "Failed to authenticate with PayPal"}), 500
+
+    url = f"{app.config['PAYPAL_BASE_URL']}/v2/checkout/orders"
+    payload = {
+        "intent": "CAPTURE",
+        "purchase_units": [{
+            "amount": {"currency_code": currency, "value": amount}
+        }]
+    }
+    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+
+    response = requests.post(url, json=payload, headers=headers)
+    print("PayPal API Response:", response.status_code, response.text)  # Log PayPal API response
+
+    if response.status_code == 201:
+        order_data = response.json()
+        paypal_order_id = order_data["id"]
+        status = order_data["status"]
+
+        # Save transaction in the database
+        new_transaction = Transaction(
+            paypal_order_id=paypal_order_id,
+            status=status,
+            amount=amount,
+            currency=currency,
+            payer_email=payer_email,
+            donation_id=new_donation.id
+        )
+        db.session.add(new_transaction)
+        db.session.commit()
+
+        return jsonify({"message": "Donation and PayPal order created", "orderID": paypal_order_id})  # Return orderID
     else:
-        return jsonify(error=payment.error), 400
+        print("Failed to create PayPal order:", response.status_code, response.text)  # Log failure
+        return jsonify({"error": "Failed to create PayPal order", "details": response.text}), 400
+
 
 @app.route('/execute-paypal-payment', methods=['POST'])
 @jwt_required()
 def execute_paypal_payment():
     data = request.get_json()
-    payment_id = data['paymentID']
-    payer_id = data['payerID']
-    donation_id = data['donation_id']
-    amount = float(data['amount'])
+    order_id = data.get("orderID")
 
-    payment = paypalrestsdk.Payment.find(payment_id)
+    access_token = get_paypal_token()
+    if not access_token:
+        return jsonify({"error": "Failed to authenticate with PayPal"}), 500
 
-    if payment.execute({"payer_id": payer_id}):
-        # Create a transaction record
-        transaction = Transaction(
-            donation_id=donation_id,
-            amount=amount,
-            status='success',
-            payment_method='paypal',
-            transaction_reference=payment_id,
-            created_at=datetime.utcnow()
-        )
-        db.session.add(transaction)
-        db.session.commit()
+    url = f"{app.config['PAYPAL_BASE_URL']}/v2/checkout/orders/{order_id}/capture"
+    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
 
-        return jsonify({
-            'message': 'Payment successful',
-            'transaction_id': transaction.id
-        }), 200
+    response = requests.post(url, headers=headers)
+
+    if response.status_code == 201:
+        capture_data = response.json()
+        status = capture_data["status"]
+
+        # Update transaction status in the database
+        transaction = Transaction.query.filter_by(paypal_order_id=order_id).first()
+        if transaction:
+            transaction.status = status
+            db.session.commit()
+
+        return jsonify({"message": "Payment captured successfully", "details": capture_data})
     else:
-        return jsonify(error=payment.error), 400
+        return jsonify({"error": "Failed to capture payment", "details": response.text}), 400
 
 
 # ------------------- PROFILE -------------------
