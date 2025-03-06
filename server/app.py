@@ -429,7 +429,7 @@ def get_donation(donation_id):
 
 
 @app.route('/donations', methods=['GET'])
-@jwt_required()
+# @jwt_required()
 def get_all_donations():
     """Retrieve all donations"""
     donations = Donation.query.all()
