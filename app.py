@@ -1054,6 +1054,7 @@ def delete_charity(id):
 
         return jsonify({"message": "Charity deleted successfully"}), 200
     except Exception as e:
+
         return jsonify({"error": str(e)}), 500
 @admin_bp.route('/charities/<int:id>', methods=['DELETE'])
 @jwt_required()
