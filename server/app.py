@@ -260,7 +260,7 @@ def protected():
 # ------------------- USERS -------------------
 
 @app.route('/users', methods=['GET'])
-@jwt_required()
+# @jwt_required()
 def get_users():
     users = User.query.all()
     return jsonify([
