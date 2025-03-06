@@ -409,7 +409,7 @@ def create_donation():
 
 
 @app.route('/donations/<int:donation_id>', methods=['GET'])
-@jwt_required()
+# @jwt_required()
 def get_donation(donation_id):
     """Retrieve a single donation by ID"""
     donation = Donation.query.get(donation_id)
@@ -1100,7 +1100,7 @@ def update_profile():
     return jsonify({"message": "Profile updated successfully"}), 200
 @admin_bp.route('/donation-statistics', methods=['GET', 'OPTIONS'])
 @cross_origin()
-@jwt_required()
+# @jwt_required()
 def get_donation_statistics():
     if request.method == 'OPTIONS':
         return jsonify({"message": "OK"}), 200  # Handle preflight request
@@ -1119,7 +1119,7 @@ def get_donation_statistics():
     return jsonify(statistics), 200
 # Get Current User Details
 @app.route("/user", methods=["GET"])
-@jwt_required()
+# @jwt_required()
 def get_current_user():
     current_user_email = get_jwt_identity()  # Get user email from JWT
 
@@ -1138,7 +1138,7 @@ def get_current_user():
 
 
 @admin_bp.route('/users/<int:user_id>', methods=['GET'])
-@jwt_required()
+# @jwt_required()
 def get_user(user_id):
     current_user_id = get_jwt_identity()
     user = User.query.get(current_user_id)
