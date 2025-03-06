@@ -19,7 +19,7 @@ class User(db.Model):
     profile_picture = db.Column(db.Text)  # Store base64 encoded image or file path
     google_id = db.Column(db.String(120), unique=True, nullable=True)  # Unique and nullable
     donations = db.relationship('Donation', back_populates='donor', lazy=True, cascade='all, delete-orphan')
-    charities = db.relationship('Charity', backref='owner', lazy=True, cascade='all, delete-orphan')
+    charities = db.relationship('Charity', back_populates='owner', lazy=True, cascade='all, delete-orphan')
     notification_preferences = db.relationship('NotificationPreference', backref='user', lazy=True, cascade='all, delete-orphan', uselist=False)
 
     def set_password(self, password):
@@ -92,6 +92,7 @@ class Charity(db.Model):
     donations = db.relationship('Donation', backref='charity', lazy=True)
     stories = db.relationship('Story', backref='charity', lazy=True)
     beneficiaries = db.relationship('Beneficiary', backref='charity_owner', lazy=True)
+    owner = db.relationship('User', back_populates='charities')
 
     @classmethod
     @jwt_required()

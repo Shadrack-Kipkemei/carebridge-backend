@@ -26,6 +26,7 @@ def allowed_file(filename):
 # Initialize Flask App
 app = Flask(__name__, instance_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'instance'))
 app.config.from_object(Config)
+
 # Initialize OAuth
 oauth = OAuth(app)
 # Initialize Extensions
@@ -277,9 +278,9 @@ def get_user(user_id):
 
 # ------------------- CHARITIES -------------------
 
+# Route to get all charities
 @app.route('/charities', methods=['GET'])
-# @jwt_required()
-def get_charities():
+def get_all_charities():  # Renamed to avoid conflict
     try:
         # Fetch all charities from the database
         charities = Charity.query.all()
@@ -296,10 +297,10 @@ def get_charities():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
-@app.route('/charities', methods=['POST'])
+# Route to create a charity
+@app.route('/charities/create', methods=['POST'])
 @jwt_required()
-def create_charity():
+def create_new_charity():  # Renamed to avoid conflict
     data = request.get_json()
     current_user_id = get_jwt_identity()
 
@@ -311,12 +312,60 @@ def create_charity():
     db.session.commit()
     return jsonify({"message": "Charity created successfully"}), 201
 
+# Route to get a specific charity by ID
 @app.route('/charities/<int:charity_id>', methods=['GET'])
-def get_charity(charity_id):
+def get_single_charity(charity_id):  # Renamed to avoid conflict
     charity = Charity.query.get(charity_id)
     if not charity:
         return jsonify({"error": "Charity not found"}), 404
-    return jsonify({"id": charity.id, "name": charity.name, "description": charity.description}), 200
+    return jsonify({
+        "id": charity.id,
+        "name": charity.name,
+        "description": charity.description,
+        "owner_id": charity.owner_id,
+        "created_at": charity.created_at.isoformat() if charity.created_at else None,
+        "is_approved": charity.is_approved
+    }), 200
+
+# Route for admin to approve a charity
+@app.route('/charities/approve/<int:charity_id>', methods=['PUT'])
+@jwt_required()
+def approve_single_charity(charity_id):  # Renamed to avoid conflict
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+
+    if not user or user.role != "admin":
+        return jsonify({"error": "Unauthorized"}), 403
+
+    charity = Charity.query.get(charity_id)
+    if not charity:
+        return jsonify({"error": "Charity not found"}), 404
+
+    charity.is_approved = True
+    db.session.commit()
+
+    return jsonify({"message": "Charity approved successfully"}), 200
+
+# Route to delete a charity (only owner or admin can delete)
+@app.route('/charities/delete/<int:charity_id>', methods=['DELETE'])
+@jwt_required()
+def delete_single_charity(charity_id):  # Renamed to avoid conflict
+    current_user_id = get_jwt_identity()
+    charity = Charity.query.get(charity_id)
+
+    if not charity:
+        return jsonify({"error": "Charity not found"}), 404
+
+    if charity.owner_id != current_user_id:
+        user = User.query.get(current_user_id)
+        if not user or user.role != "admin":
+            return jsonify({"error": "Unauthorized"}), 403
+
+    db.session.delete(charity)
+    db.session.commit()
+
+    return jsonify({"message": "Charity deleted successfully"}), 200
+
 
 # ------------------- DONATIONS CRUD -------------------
 
@@ -643,6 +692,76 @@ def execute_paypal_payment():
         return jsonify({"message": "Payment captured successfully", "details": capture_data})
     else:
         return jsonify({"error": "Failed to capture payment", "details": response.text}), 400
+
+
+# ------------------- CHARITIES -------------------
+# charity_bp = Blueprint("charity_bp", __name__, url_prefix="/charities")
+
+# # Route to create a charity
+# @charity_bp.route("/create", methods=["POST"])
+# @jwt_required()
+# def create_charity():
+#     return Charity.create_charity()
+
+# # Route to get all approved charities
+# @charity_bp.route("/", methods=["GET"])
+# def get_charities():
+#     return Charity.get_charities()
+
+# # Route to get a specific charity by ID
+# @charity_bp.route("/<charity_id>", methods=["GET"])
+# def get_charity(charity_id):
+#     charity = Charity.query.get(charity_id)
+#     if not charity or not charity.is_approved:
+#         return jsonify({"error": "Charity not found or not approved"}), 404
+
+#     return jsonify({
+#         "id": charity.id,
+#         "name": charity.name,
+#         "description": charity.description,
+#         "owner_id": charity.owner_id,
+#         "created_at": charity.created_at.isoformat(),
+#         "is_approved": charity.is_approved
+#     }), 200
+
+# # Route for admin to approve a charity
+# @charity_bp.route("/approve/<charity_id>", methods=["PUT"])
+# @jwt_required()
+# def approve_charity(charity_id):
+#     current_user_id = get_jwt_identity()
+#     user = User.query.get(current_user_id)
+
+#     if not user or user.role != "admin":
+#         return jsonify({"error": "Unauthorized"}), 403
+
+#     charity = Charity.query.get(charity_id)
+#     if not charity:
+#         return jsonify({"error": "Charity not found"}), 404
+
+#     charity.is_approved = True
+#     db.session.commit()
+
+#     return jsonify({"message": "Charity approved successfully"}), 200
+
+# # Route to delete a charity (only owner or admin can delete)
+# @charity_bp.route("/delete/<charity_id>", methods=["DELETE"])
+# @jwt_required()
+# def delete_charity(charity_id):
+#     current_user_id = get_jwt_identity()
+#     charity = Charity.query.get(charity_id)
+
+#     if not charity:
+#         return jsonify({"error": "Charity not found"}), 404
+
+#     if charity.owner_id != current_user_id:
+#         user = User.query.get(current_user_id)
+#         if not user or user.role != "admin":
+#             return jsonify({"error": "Unauthorized"}), 403
+
+#     db.session.delete(charity)
+#     db.session.commit()
+
+#     return jsonify({"message": "Charity deleted successfully"}), 200
 
 
 # ------------------- PROFILE -------------------
