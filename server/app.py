@@ -7,7 +7,7 @@ from flask_migrate import Migrate
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from server.config import Config
-from server.models import db, User, Charity, Donation, Category, Beneficiary, Story
+from server.models import db, User, Charity, Donation, Category, Beneficiary, Story, Volunteer
 from flask_jwt_extended import create_access_token
 from datetime import datetime
 from werkzeug.utils import secure_filename
@@ -907,6 +907,34 @@ def get_dashboard_stats():
         "total_raised": total_raised,
         "active_users": active_users
     }), 200
+
+
+# ------------------- VOLUNTEERS -------------------
+@app.route("/api/volunteers", methods=["POST"])
+def create_volunteer():
+    data = request.get_json()
+    name = data.get("name")
+    email = data.get("email")
+    phone = data.get("phone")
+    message = data.get("message")
+
+    if not name or not email or not phone or not message:
+        return jsonify({"error": "All fields are required"}), 400
+
+    new_volunteer = Volunteer(name=name, email=email, phone=phone, message=message)
+    
+    try:
+        db.session.add(new_volunteer)
+        db.session.commit()
+        return jsonify({"message": "Thank you for signing up as a volunteer!"}), 201
+    except Exception as e:
+        return jsonify({"error": "Failed to register volunteer"}), 500
+
+@app.route("/api/volunteers", methods=["GET"])
+def get_volunteers():
+    volunteers = Volunteer.query.all()
+    return jsonify([volunteer.to_dict() for volunteer in volunteers]), 200
+
 
 
 # ------------------- ADMIN ACTIONS -------------------
