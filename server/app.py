@@ -7,8 +7,8 @@ from flask_migrate import Migrate
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from server.config import Config
-from server.models import db, User, Charity, Donation, Category, Beneficiary, Story, Volunteer
-from flask_jwt_extended import create_access_token
+from server.models import db, User, Charity, Donation, Category, Beneficiary, Story, Volunteer, Transaction
+from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from datetime import datetime
 from werkzeug.utils import secure_filename
 import paypalrestsdk
@@ -16,6 +16,7 @@ from flask_cors import CORS, cross_origin
 from authlib.integrations.flask_client import OAuth
 from sqlalchemy.sql import func
 import base64
+import requests
 
 
 UPLOAD_FOLDER = "uploads"  # Ensure this folder exists
@@ -37,7 +38,7 @@ jwt = JWTManager(app)
 migrate = Migrate(app, db)
 mail = Mail(app)
 s = URLSafeTimedSerializer("your_secret_key")  # Token generator
-CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}}, supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
+CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "https://carebridge-backend-fys5.onrender.com"]}}, supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
 #cheking if upload profile location is available
 UPLOAD_FOLDER = "uploads"  # Folder to store uploaded images
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -261,13 +262,33 @@ def protected():
 # ------------------- USERS -------------------
 
 @app.route('/users', methods=['GET'])
-# @jwt_required()
+@jwt_required()  # Protect the endpoint
 def get_users():
-    users = User.query.all()
-    return jsonify([
-        {"id": user.id, "username": user.username, "email": user.email, "role": user.role}
-        for user in users
-    ]), 200
+    try:
+        # Get the email of the logged-in user
+        current_user_email = get_jwt_identity()
+        current_user = User.query.filter_by(email=current_user_email).first()
+
+        # Check if the current user exists
+        if not current_user:
+            return jsonify({"error": "Current user not found"}), 404
+
+        # Restrict access to admin users
+        if current_user.role != "admin":
+            return jsonify({"error": "Unauthorized access"}), 403
+
+        # Fetch all users
+        users = User.query.all()
+        return jsonify([
+            {"id": user.id, "username": user.username, "email": user.email, "role": user.role}
+            for user in users
+        ]), 200
+
+    except Exception as e:
+        # Log the error for debugging
+        print(f"Error in /users endpoint: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+
 
 @app.route('/users/<int:user_id>', methods=['GET'])
 def get_user(user_id):
@@ -589,39 +610,53 @@ def get_paypal_token():
 @jwt_required()
 def create_paypal_payment():
     data = request.get_json()
-    print("Received data:", data)  # Log the incoming request data
+    print("Received data:", data)  
 
+    # Extract required fields
     amount = data.get("amount")
     currency = "USD"
-    charity_id = data.get("charity_id")  # Typo here: should be "charity_id"
+    charity_id = data.get("charity_id") 
     payer_email = data.get("email")
     is_anonymous = data.get("is_anonymous", False)
     donor_name = None if is_anonymous else data.get("donor_name")
+    category_id = data.get("category_id")  # Ensure category_id is provided
+    donation_type = data.get("donation_type")  # Ensure donation_type is provided
+    payment_method = data.get("payment_method", "paypal")  # Ensure payment_method is provided
 
     # Validate required fields
-    if not amount or not charity_id or not payer_email:
-        print("Validation failed: Missing required fields")  # Log validation failure
-        return jsonify({"error": "Missing required fields (amount, charity_id, or email)."}), 400
+    required_fields = ["amount", "charity_id", "email", "category_id", "donation_type"]
+    if not all(data.get(field) for field in required_fields):
+        print("Validation failed: Missing required fields")  
+        return jsonify({"error": f"Missing required fields: {required_fields}"}), 400
 
-    # Ensure donor_name is provided for non-anonymous donations
     if not is_anonymous and not donor_name:
-        print("Validation failed: Donor name is required for non-anonymous donations")  # Log validation failure
+        print("Validation failed: Donor name is required for non-anonymous donations")  
         return jsonify({"error": "Donor name is required for non-anonymous donations."}), 400
 
-    # Save donation to database
-    new_donation = Donation(
-        amount=data["amount"],
-        donor_id=get_jwt_identity(),
-        charity_id=data["charity_id"],
-        category_id=data["category_id"],  # Add this line
-        is_anonymous=data.get("is_anonymous", False),
-        donor_name=data.get("donor_name"),
-        is_recurring=data.get("is_recurring", False),
-        frequency=data.get("frequency"),
-        next_donation_date=data.get("next_donation_date")
-    )
-    db.session.add(new_donation)
-    db.session.commit()
+    try:
+        is_recurring = data.get("is_recurring", False)
+        frequency = data.get("frequency")
+        next_donation_date = data.get("next_donation_date")
+
+        # Save donation to database
+        new_donation = Donation(
+            amount=amount,
+            donor_id=get_jwt_identity(),
+            charity_id=charity_id,
+            category_id=category_id,  # Ensure category_id is passed
+            donation_type=donation_type,  # Ensure donation_type is passed
+            is_anonymous=is_anonymous,
+            donor_name=donor_name,
+            is_recurring=is_recurring,
+            frequency=frequency,
+            next_donation_date=next_donation_date
+        )
+        db.session.add(new_donation)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print("Failed to save donation:", str(e))  # Log the error
+        return jsonify({"error": "Failed to save donation", "details": str(e)}), 500
 
     # Create PayPal Order
     access_token = get_paypal_token()
@@ -646,23 +681,43 @@ def create_paypal_payment():
         paypal_order_id = order_data["id"]
         status = order_data["status"]
 
-        # Save transaction in the database
-        new_transaction = Transaction(
-            paypal_order_id=paypal_order_id,
-            status=status,
-            amount=amount,
-            currency=currency,
-            payer_email=payer_email,
-            donation_id=new_donation.id
-        )
-        db.session.add(new_transaction)
-        db.session.commit()
+        # Extract the approval URL
+        approve_url = None
+        for link in order_data.get("links", []):
+            if link.get("rel") == "approve":
+                approve_url = link.get("href")
+                break
 
-        return jsonify({"message": "Donation and PayPal order created", "orderID": paypal_order_id})  # Return orderID
+        if not approve_url:
+            return jsonify({"error": "Failed to retrieve PayPal approval URL"}), 500
+
+        try:
+            # Save transaction in the database
+            new_transaction = Transaction(
+                paypal_order_id=paypal_order_id,
+                status=status,
+                amount=amount,
+                currency=currency,
+                payer_email=payer_email,
+                payment_method=payment_method,  # Ensure payment_method is passed
+                donation_id=new_donation.id
+            )
+            db.session.add(new_transaction)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print("Failed to save transaction:", str(e))  # Log the error
+            return jsonify({"error": "Failed to save transaction", "details": str(e)}), 500
+
+        return jsonify({
+            "message": "Donation and PayPal order created",
+            "orderID": paypal_order_id,
+            "approve_url": approve_url  # Return the approval URL
+        })
     else:
         print("Failed to create PayPal order:", response.status_code, response.text)  # Log failure
         return jsonify({"error": "Failed to create PayPal order", "details": response.text}), 400
-
+                
 
 @app.route('/execute-paypal-payment', methods=['POST'])
 @jwt_required()

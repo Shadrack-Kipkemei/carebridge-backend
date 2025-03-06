@@ -413,8 +413,11 @@ class Notification(db.Model):
 # Transaction Model
 class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    paypal_order_id = db.Column(db.String(255), nullable=False) 
     donation_id = db.Column(db.Integer, db.ForeignKey('donation.id'), nullable=False)
     amount = db.Column(db.Float, nullable=False)
+    currency = db.Column(db.String(10), nullable=False) 
+    payer_email = db.Column(db.String(120), nullable=False)
     status = db.Column(db.String(20), nullable=False)  # success, failed, pending
     payment_method = db.Column(db.String(50), nullable=False)
     transaction_reference = db.Column(db.String(255), nullable=True)
