@@ -197,6 +197,7 @@ def seed_all():
     seed_notification_preferences()
     seed_notifications()
     seed_transactions()
+    
     print("Database seeding completed!")
 
 if __name__ == "__main__":
