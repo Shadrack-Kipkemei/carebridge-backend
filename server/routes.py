@@ -1,6 +1,8 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
-from datetime import datetime, UTC
+from datetime import datetime, timezone
+UTC = timezone.utc  # Define UTC manually
+
 from server import db
 from server.models import (
     User, Charity, Donation, Category, Transaction,
