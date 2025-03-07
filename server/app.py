@@ -403,6 +403,40 @@ def delete_single_charity(charity_id):  # Renamed to avoid conflict
 
     return jsonify({"message": "Charity deleted successfully"}), 200
 
+@app.route('/api/charity-settings', methods=['GET'])
+@jwt_required()
+def get_charity_settings():
+    charity_id = get_jwt_identity()  # Get charity ID from JWT token
+    charity = Charity.query.get(charity_id)
+    if not charity:
+        return jsonify({"error": "Charity not found"}), 404
+    return jsonify(charity.to_dict())
+
+@app.route('/api/charity-settings', methods=['PATCH'])
+@jwt_required()
+def update_charity_settings():
+    charity_id = get_jwt_identity()  # Get charity ID from JWT token
+    charity = Charity.query.get(charity_id)
+    if not charity:
+        return jsonify({"error": "Charity not found"}), 404
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    # Update fields if provided
+    if 'name' in data:
+        charity.name = data['name']
+    if 'description' in data:
+        charity.description = data['description']
+    if 'email' in data:
+        charity.email = data['email']
+    
+    if 'password' in data:
+        charity.password = data['password']
+
+    db.session.commit()
+    return jsonify({"message": "Settings updated successfully"})
 
 # ------------------- DONATIONS CRUD -------------------
 
@@ -1057,7 +1091,7 @@ def get_volunteers():
 
 
 
-# ------------------- ADMIN ACTIONS -------------------
+#ADMIN ACTIONS ------------------
 # Routes
 admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 @admin_bp.route('/charity-applications', methods=['GET'])
