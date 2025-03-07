@@ -18,6 +18,7 @@ from sqlalchemy.sql import func
 import base64
 import requests
 
+fundraiser_bp = Blueprint('fundraiser', __name__)
 
 UPLOAD_FOLDER = "uploads"  # Ensure this folder exists
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
@@ -38,7 +39,7 @@ jwt = JWTManager(app)
 migrate = Migrate(app, db)
 mail = Mail(app)
 s = URLSafeTimedSerializer("your_secret_key")  # Token generator
-CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "https://care-bridge-frontend-cool-r54y.vercel.app"]}}, supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
+CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "https://care-bridge-deploy.vercel.app"]}}, supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
 #cheking if upload profile location is available
 UPLOAD_FOLDER = "uploads"  # Folder to store uploaded images
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -127,7 +128,6 @@ def home():
     return jsonify({"message": "Welcome to CareBridge API"}), 200
 
 # ------------------- AUTHENTICATION -------------------
-
 @app.route('/auth/register', methods=['POST'])
 def register():
     data = request.get_json()
@@ -139,35 +139,31 @@ def register():
     if not all(key in data for key in ["username", "email", "password", "confirmPassword", "role"]):
         return jsonify({"error": "All fields are required"}), 400
 
-
     if data["password"] != data["confirmPassword"]:
         return jsonify({"error": "Passwords do not match"}), 400
 
     existing_user = User.query.filter_by(email=data["email"]).first()
     if existing_user:
         print("Validation failed: Email already in use")  # Debug statement for existing email
-
-    # Check if email already exists
-    existing_user = User.query.filter_by(email=data["email"]).first()
-    if existing_user:
         return jsonify({"error": "Email already in use"}), 400
 
-    # Create user and hash password
     print("Creating user...")  # Debug statement for user creation
 
-    # Create user and hash password
-    user = User(
-        username=data["username"],
-        email=data["email"],
-        # password=data["password"],
-        role=data.get("role", "donor")
-    )
-    user.set_password(data["password"])
-    db.session.add(user)
-    db.session.commit()
-
-    return jsonify({"message": "User registered successfully"}), 201
-
+    try:
+        user = User(
+            username=data["username"],
+            email=data["email"],
+            role=data.get("role", "donor")
+        )
+        user.set_password(data["password"])
+        db.session.add(user)
+        db.session.commit()
+        print("User created successfully:", user.id)  # Debug statement for successful creation
+        return jsonify({"message": "User registered successfully"}), 201
+    except Exception as e:
+        print("Error creating user:", str(e))  # Debug statement for errors
+        return jsonify({"error": "Internal server error"}), 500
+        
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -262,7 +258,7 @@ def protected():
 # ------------------- USERS -------------------
 
 @app.route('/user', methods=['GET'])
-# @jwt_required()
+@jwt_required()
 def get_user_by_id():
     current_user_id = get_jwt_identity()
     user = User.query.get(current_user_id)
@@ -278,25 +274,20 @@ def get_user_by_id():
 
 
 @app.route('/users', methods=['GET'])
-# @jwt_required()
+@jwt_required()  # Ensure the user is authenticated
 def get_users():
     try:
-        # Get the email of the logged-in user
-        current_user_email = get_jwt_identity()
-        current_user = User.query.filter_by(email=current_user_email).first()
-
-        # Check if the current user exists
-        if not current_user:
-            return jsonify({"error": "Current user not found"}), 404
-
-        # Restrict access to admin users
-        if current_user.role != "admin":
-            return jsonify({"error": "Unauthorized access"}), 403
-
-        # Fetch all users
+        # Fetch all users from the database
         users = User.query.all()
+
+        # Return the list of users
         return jsonify([
-            {"id": user.id, "username": user.username, "email": user.email, "role": user.role}
+            {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "role": user.role
+            }
             for user in users
         ]), 200
 
@@ -305,13 +296,13 @@ def get_users():
         print(f"Error in /users endpoint: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
 
-
 @app.route('/users/<int:user_id>', methods=['GET'])
 def get_user(user_id):
     user = User.query.get(user_id)
     if not user:
         return jsonify({"error": "User not found"}), 404
     return jsonify({"id": user.id, "username": user.username, "email": user.email, "role": user.role}), 200
+
 
 # ------------------- CHARITIES -------------------
 
@@ -1282,7 +1273,7 @@ def update_profile():
     return jsonify({"message": "Profile updated successfully"}), 200
 @admin_bp.route('/donation-statistics', methods=['GET', 'OPTIONS'])
 @cross_origin()
-# @jwt_required()
+@jwt_required()
 def get_donation_statistics():
     if request.method == 'OPTIONS':
         return jsonify({"message": "OK"}), 200  # Handle preflight request
@@ -1455,6 +1446,143 @@ def update_admin_profile():
 
     db.session.commit()
     return jsonify({"message": "Admin profile updated successfully"}), 200
+
+@fundraiser_bp.route('/fundraisers', methods=['POST'])
+@jwt_required()
+def create_fundraiser():
+    """
+    Create a new fundraiser.
+    """
+    data = request.get_json()
+    current_user_id = get_jwt_identity()
+
+    # Validate required fields
+    required_fields = ["title", "description", "goal_amount", "end_date"]
+    if not all(field in data for field in required_fields):
+        return jsonify({"error": "Missing required fields"}), 400
+
+    # Validate end date
+    try:
+        end_date = datetime.fromisoformat(data["end_date"])
+        if end_date <= datetime.utcnow():
+            return jsonify({"error": "End date must be in the future"}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid date format. Use ISO format (YYYY-MM-DDTHH:MM:SS)"}), 400
+
+    # Create the fundraiser
+    fundraiser = Fundraiser(
+        title=data["title"],
+        description=data["description"],
+        goal_amount=data["goal_amount"],
+        end_date=end_date,
+        creator_id=current_user_id,
+        charity_id=data.get("charity_id")  # Optional
+    )
+
+    db.session.add(fundraiser)
+    db.session.commit()
+
+    return jsonify({
+        "message": "Fundraiser created successfully",
+        "fundraiser_id": fundraiser.id
+    }), 201
+
+@fundraiser_bp.route('/fundraisers/<int:fundraiser_id>', methods=['GET'])
+def get_fundraiser(fundraiser_id):
+    """
+    Get details of a specific fundraiser.
+    """
+    fundraiser = Fundraiser.query.get_or_404(fundraiser_id)
+    return jsonify({
+        "id": fundraiser.id,
+        "title": fundraiser.title,
+        "description": fundraiser.description,
+        "goal_amount": fundraiser.goal_amount,
+        "current_amount": fundraiser.current_amount,  # Dynamically calculated
+        "start_date": fundraiser.start_date.isoformat(),
+        "end_date": fundraiser.end_date.isoformat(),
+        "is_active": fundraiser.is_active,
+        "creator_id": fundraiser.creator_id,
+        "charity_id": fundraiser.charity_id,
+        "created_at": fundraiser.created_at.isoformat(),
+        "updated_at": fundraiser.updated_at.isoformat()
+    }), 200
+
+@fundraiser_bp.route('/fundraisers/<int:fundraiser_id>', methods=['PUT'])
+@jwt_required()
+def update_fundraiser(fundraiser_id):
+    """
+    Update an existing fundraiser.
+    """
+    fundraiser = Fundraiser.query.get_or_404(fundraiser_id)
+    current_user_id = get_jwt_identity()
+
+    # Check if the current user is the creator of the fundraiser
+    if fundraiser.creator_id != current_user_id:
+        return jsonify({"error": "Unauthorized to update this fundraiser"}), 403
+
+    data = request.get_json()
+
+    # Update fields if provided
+    if "title" in data:
+        fundraiser.title = data["title"]
+    if "description" in data:
+        fundraiser.description = data["description"]
+    if "goal_amount" in data:
+        fundraiser.goal_amount = data["goal_amount"]
+    if "end_date" in data:
+        try:
+            end_date = datetime.fromisoformat(data["end_date"])
+            if end_date <= datetime.utcnow():
+                return jsonify({"error": "End date must be in the future"}), 400
+            fundraiser.end_date = end_date
+        except ValueError:
+            return jsonify({"error": "Invalid date format. Use ISO format (YYYY-MM-DDTHH:MM:SS)"}), 400
+
+    db.session.commit()
+
+    return jsonify({
+        "message": "Fundraiser updated successfully",
+        "fundraiser_id": fundraiser.id
+    }), 200
+
+@fundraiser_bp.route('/fundraisers/<int:fundraiser_id>', methods=['DELETE'])
+@jwt_required()
+def delete_fundraiser(fundraiser_id):
+    """
+    Delete a fundraiser.
+    """
+    fundraiser = Fundraiser.query.get_or_404(fundraiser_id)
+    current_user_id = get_jwt_identity()
+
+    # Check if the current user is the creator of the fundraiser
+    if fundraiser.creator_id != current_user_id:
+        return jsonify({"error": "Unauthorized to delete this fundraiser"}), 403
+
+    db.session.delete(fundraiser)
+    db.session.commit()
+
+    return jsonify({
+        "message": "Fundraiser deleted successfully"
+    }), 200
+
+@fundraiser_bp.route('/fundraisers', methods=['GET'])
+def list_fundraisers():
+    """
+    List all active fundraisers.
+    """
+    fundraisers = Fundraiser.query.filter_by(is_active=True).all()
+    return jsonify([{
+        "id": f.id,
+        "title": f.title,
+        "description": f.description,
+        "goal_amount": f.goal_amount,
+        "current_amount": f.current_amount,  # Dynamically calculated
+        "start_date": f.start_date.isoformat(),
+        "end_date": f.end_date.isoformat(),
+        "creator_id": f.creator_id,
+        "charity_id": f.charity_id
+    } for f in fundraisers]), 200
 # Registering the Blueprint
 
 app.register_blueprint(admin_bp, url_prefix="/api/admin")
@@ -1462,4 +1590,6 @@ app.register_blueprint(admin_bp, url_prefix="/api/admin")
 # # ------------------- RUN APP -------------------
 
 if __name__ == "__main__":
-    flask_app.run(debug=True)
+    
+   flask_app = Flask(__name__)
+app.register_blueprint(fundraiser_bp)  

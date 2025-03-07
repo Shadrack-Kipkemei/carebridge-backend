@@ -425,6 +425,156 @@ class Transaction(db.Model):
     
     donation = db.relationship('Donation', backref='transactions')
 
+class Fundraiser(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    goal_amount = db.Column(db.Float, nullable=False)
+    start_date = db.Column(db.DateTime, default=datetime.utcnow)
+    end_date = db.Column(db.DateTime, nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+    creator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    charity_id = db.Column(db.Integer, db.ForeignKey('charity.id'), nullable=True)
+
+    # Relationship to Donation
+    donations = db.relationship('Donation', back_populates='fundraiser', lazy=True)
+
+    @property
+    def current_amount(self):
+        """
+        Calculate the total amount raised from donations dynamically.
+        """
+        return sum(donation.amount for donation in self.donations)
+
+    @classmethod
+    def create_fundraiser(cls):
+        """
+        Create a new fundraiser.
+        """
+        data = request.get_json()
+
+        # Validate required fields
+        required_fields = ["title", "description", "goal_amount", "end_date", "creator_id"]
+        if not all(field in data for field in required_fields):
+            return jsonify({"error": "Missing required fields"}), 400
+
+        # Validate end date
+        try:
+            end_date = datetime.fromisoformat(data["end_date"])
+            if end_date <= datetime.utcnow():
+                return jsonify({"error": "End date must be in the future"}), 400
+        except ValueError:
+            return jsonify({"error": "Invalid date format. Use ISO format (YYYY-MM-DDTHH:MM:SS)"}), 400
+
+        # Create the fundraiser
+        fundraiser = cls(
+            title=data["title"],
+            description=data["description"],
+            goal_amount=data["goal_amount"],
+            end_date=end_date,
+            creator_id=data["creator_id"],
+            charity_id=data.get("charity_id")  # Optional
+        )
+
+        db.session.add(fundraiser)
+        db.session.commit()
+
+        return jsonify({
+            "message": "Fundraiser created successfully",
+            "fundraiser_id": fundraiser.id
+        }), 201
+
+    @classmethod
+    def get_fundraiser(cls, fundraiser_id):
+        """
+        Get details of a specific fundraiser.
+        """
+        fundraiser = cls.query.get_or_404(fundraiser_id)
+        return jsonify({
+            "id": fundraiser.id,
+            "title": fundraiser.title,
+            "description": fundraiser.description,
+            "goal_amount": fundraiser.goal_amount,
+            "current_amount": fundraiser.current_amount,  # Dynamically calculated
+            "start_date": fundraiser.start_date.isoformat(),
+            "end_date": fundraiser.end_date.isoformat(),
+            "is_active": fundraiser.is_active,
+            "creator_id": fundraiser.creator_id,
+            "charity_id": fundraiser.charity_id,
+            "created_at": fundraiser.created_at.isoformat(),
+            "updated_at": fundraiser.updated_at.isoformat()
+        }), 200
+
+    @classmethod
+    def update_fundraiser(cls, fundraiser_id):
+        """
+        Update an existing fundraiser.
+        """
+        fundraiser = cls.query.get_or_404(fundraiser_id)
+        data = request.get_json()
+
+        # Update fields if provided
+        if "title" in data:
+            fundraiser.title = data["title"]
+        if "description" in data:
+            fundraiser.description = data["description"]
+        if "goal_amount" in data:
+            fundraiser.goal_amount = data["goal_amount"]
+        if "end_date" in data:
+            try:
+                end_date = datetime.fromisoformat(data["end_date"])
+                if end_date <= datetime.utcnow():
+                    return jsonify({"error": "End date must be in the future"}), 400
+                fundraiser.end_date = end_date
+            except ValueError:
+                return jsonify({"error": "Invalid date format. Use ISO format (YYYY-MM-DDTHH:MM:SS)"}), 400
+
+        db.session.commit()
+
+        return jsonify({
+            "message": "Fundraiser updated successfully",
+            "fundraiser_id": fundraiser.id
+        }), 200
+
+    @classmethod
+    def delete_fundraiser(cls, fundraiser_id):
+        """
+        Delete a fundraiser.
+        """
+        fundraiser = cls.query.get_or_404(fundraiser_id)
+        db.session.delete(fundraiser)
+        db.session.commit()
+
+        return jsonify({
+            "message": "Fundraiser deleted successfully"
+        }), 200
+
+    @classmethod
+    def list_fundraisers(cls):
+        """
+        List all active fundraisers.
+        """
+        fundraisers = cls.query.filter_by(is_active=True).all()
+        return jsonify([{
+            "id": f.id,
+            "title": f.title,
+            "description": f.description,
+            "goal_amount": f.goal_amount,
+            "current_amount": f.current_amount,  # Dynamically calculated
+            "start_date": f.start_date.isoformat(),
+            "end_date": f.end_date.isoformat(),
+            "creator_id": f.creator_id,
+            "charity_id": f.charity_id
+        } for f in fundraisers]), 200
+    
+class ActivityLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    activity_type = db.Column(db.String(50), nullable=False)  # e.g., login, donation, etc.
+    description = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', backref='activity_logs')    
 
 # Volunteer Model
 class Volunteer(db.Model):
