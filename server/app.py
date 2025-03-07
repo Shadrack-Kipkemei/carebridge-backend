@@ -7,8 +7,8 @@ from flask_migrate import Migrate
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from server.config import Config
-from server.models import db, User, Charity, Donation, Category, Fundraiser, Beneficiary, Story 
-from flask_jwt_extended import create_access_token
+from server.models import db, User, Charity, Donation, Category, Beneficiary, Story, Volunteer, Transaction
+from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from datetime import datetime
 from werkzeug.utils import secure_filename
 import paypalrestsdk
@@ -16,12 +16,7 @@ from flask_cors import CORS, cross_origin
 from authlib.integrations.flask_client import OAuth
 from sqlalchemy.sql import func
 import base64
-from datetime import datetime, timedelta
 import requests
-from .models import Transaction
-from flask_bcrypt import Bcrypt, generate_password_hash
-from server.models import ActivityLog
-from flask import Flask
 
 fundraiser_bp = Blueprint('fundraiser', __name__)
 
@@ -33,6 +28,7 @@ def allowed_file(filename):
 # Initialize Flask App
 app = Flask(__name__, instance_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'instance'))
 app.config.from_object(Config)
+
 # Initialize OAuth
 oauth = OAuth(app)
 # Initialize Extensions
@@ -43,7 +39,7 @@ jwt = JWTManager(app)
 migrate = Migrate(app, db)
 mail = Mail(app)
 s = URLSafeTimedSerializer("your_secret_key")  # Token generator
-CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}}, supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
+CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "https://care-bridge-frontend-cool-r54y.vercel.app"]}}, supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
 #cheking if upload profile location is available
 UPLOAD_FOLDER = "uploads"  # Folder to store uploaded images
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -266,14 +262,50 @@ def protected():
 
 # ------------------- USERS -------------------
 
+@app.route('/user', methods=['GET'])
+# @jwt_required()
+def get_user_by_id():
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    return jsonify({
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "role": user.role
+    }), 200
+
+
 @app.route('/users', methods=['GET'])
-@jwt_required()
+# @jwt_required()
 def get_users():
-    users = User.query.all()
-    return jsonify([
-        {"id": user.id, "username": user.username, "email": user.email, "role": user.role}
-        for user in users
-    ]), 200
+    try:
+        # Get the email of the logged-in user
+        current_user_email = get_jwt_identity()
+        current_user = User.query.filter_by(email=current_user_email).first()
+
+        # Check if the current user exists
+        if not current_user:
+            return jsonify({"error": "Current user not found"}), 404
+
+        # Restrict access to admin users
+        if current_user.role != "admin":
+            return jsonify({"error": "Unauthorized access"}), 403
+
+        # Fetch all users
+        users = User.query.all()
+        return jsonify([
+            {"id": user.id, "username": user.username, "email": user.email, "role": user.role}
+            for user in users
+        ]), 200
+
+    except Exception as e:
+        # Log the error for debugging
+        print(f"Error in /users endpoint: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+
 
 @app.route('/users/<int:user_id>', methods=['GET'])
 def get_user(user_id):
@@ -284,9 +316,9 @@ def get_user(user_id):
 
 # ------------------- CHARITIES -------------------
 
+# Route to get all charities
 @app.route('/charities', methods=['GET'])
-# @jwt_required()
-def get_charities():
+def get_all_charities():  # Renamed to avoid conflict
     try:
         # Fetch all charities from the database
         charities = Charity.query.all()
@@ -303,10 +335,10 @@ def get_charities():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
-@app.route('/charities', methods=['POST'])
+# Route to create a charity
+@app.route('/charities/create', methods=['POST'])
 @jwt_required()
-def create_charity():
+def create_new_charity():  # Renamed to avoid conflict
     data = request.get_json()
     current_user_id = get_jwt_identity()
 
@@ -318,12 +350,60 @@ def create_charity():
     db.session.commit()
     return jsonify({"message": "Charity created successfully"}), 201
 
+# Route to get a specific charity by ID
 @app.route('/charities/<int:charity_id>', methods=['GET'])
-def get_charity(charity_id):
+def get_single_charity(charity_id):  # Renamed to avoid conflict
     charity = Charity.query.get(charity_id)
     if not charity:
         return jsonify({"error": "Charity not found"}), 404
-    return jsonify({"id": charity.id, "name": charity.name, "description": charity.description}), 200
+    return jsonify({
+        "id": charity.id,
+        "name": charity.name,
+        "description": charity.description,
+        "owner_id": charity.owner_id,
+        "created_at": charity.created_at.isoformat() if charity.created_at else None,
+        "is_approved": charity.is_approved
+    }), 200
+
+# Route for admin to approve a charity
+@app.route('/charities/approve/<int:charity_id>', methods=['PUT'])
+@jwt_required()
+def approve_single_charity(charity_id):  # Renamed to avoid conflict
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+
+    if not user or user.role != "admin":
+        return jsonify({"error": "Unauthorized"}), 403
+
+    charity = Charity.query.get(charity_id)
+    if not charity:
+        return jsonify({"error": "Charity not found"}), 404
+
+    charity.is_approved = True
+    db.session.commit()
+
+    return jsonify({"message": "Charity approved successfully"}), 200
+
+# Route to delete a charity (only owner or admin can delete)
+@app.route('/charities/delete/<int:charity_id>', methods=['DELETE'])
+@jwt_required()
+def delete_single_charity(charity_id):  # Renamed to avoid conflict
+    current_user_id = get_jwt_identity()
+    charity = Charity.query.get(charity_id)
+
+    if not charity:
+        return jsonify({"error": "Charity not found"}), 404
+
+    if charity.owner_id != current_user_id:
+        user = User.query.get(current_user_id)
+        if not user or user.role != "admin":
+            return jsonify({"error": "Unauthorized"}), 403
+
+    db.session.delete(charity)
+    db.session.commit()
+
+    return jsonify({"message": "Charity deleted successfully"}), 200
+
 
 # ------------------- DONATIONS CRUD -------------------
 
@@ -416,7 +496,7 @@ def create_donation():
 
 
 @app.route('/donations/<int:donation_id>', methods=['GET'])
-@jwt_required()
+# @jwt_required()
 def get_donation(donation_id):
     """Retrieve a single donation by ID"""
     donation = Donation.query.get(donation_id)
@@ -436,7 +516,7 @@ def get_donation(donation_id):
 
 
 @app.route('/donations', methods=['GET'])
-@jwt_required()
+# @jwt_required()
 def get_all_donations():
     """Retrieve all donations"""
     donations = Donation.query.all()
@@ -547,39 +627,53 @@ def get_paypal_token():
 @jwt_required()
 def create_paypal_payment():
     data = request.get_json()
-    print("Received data:", data)  # Log the incoming request data
+    print("Received data:", data)  
 
+    # Extract required fields
     amount = data.get("amount")
     currency = "USD"
-    charity_id = data.get("charity_id")  # Typo here: should be "charity_id"
+    charity_id = data.get("charity_id") 
     payer_email = data.get("email")
     is_anonymous = data.get("is_anonymous", False)
-    donor_name = None if is_anonymous else data.get("donor_name")
+    donor_name = "Anonymous" if is_anonymous else data.get("donor_name")
+    category_id = data.get("category_id")  # Ensure category_id is provided
+    donation_type = data.get("donation_type")  # Ensure donation_type is provided
+    payment_method = data.get("payment_method", "paypal")  # Ensure payment_method is provided
 
     # Validate required fields
-    if not amount or not charity_id or not payer_email:
-        print("Validation failed: Missing required fields")  # Log validation failure
-        return jsonify({"error": "Missing required fields (amount, charity_id, or email)."}), 400
+    required_fields = ["amount", "charity_id", "email", "category_id", "donation_type"]
+    if not all(data.get(field) for field in required_fields):
+        print("Validation failed: Missing required fields")  
+        return jsonify({"error": f"Missing required fields: {required_fields}"}), 400
 
-    # Ensure donor_name is provided for non-anonymous donations
     if not is_anonymous and not donor_name:
-        print("Validation failed: Donor name is required for non-anonymous donations")  # Log validation failure
+        print("Validation failed: Donor name is required for non-anonymous donations")  
         return jsonify({"error": "Donor name is required for non-anonymous donations."}), 400
 
-    # Save donation to database
-    new_donation = Donation(
-        amount=data["amount"],
-        donor_id=get_jwt_identity(),
-        charity_id=data["charity_id"],
-        category_id=data["category_id"],  # Add this line
-        is_anonymous=data.get("is_anonymous", False),
-        donor_name=data.get("donor_name"),
-        is_recurring=data.get("is_recurring", False),
-        frequency=data.get("frequency"),
-        next_donation_date=data.get("next_donation_date")
-    )
-    db.session.add(new_donation)
-    db.session.commit()
+    try:
+        is_recurring = data.get("is_recurring", False)
+        frequency = data.get("frequency")
+        next_donation_date = data.get("next_donation_date")
+
+        # Save donation to database
+        new_donation = Donation(
+            amount=amount,
+            donor_id=get_jwt_identity(),
+            charity_id=charity_id,
+            category_id=category_id,  # Ensure category_id is passed
+            donation_type=donation_type,  # Ensure donation_type is passed
+            is_anonymous=is_anonymous,
+            donor_name=donor_name,
+            is_recurring=is_recurring,
+            frequency=frequency,
+            next_donation_date=next_donation_date
+        )
+        db.session.add(new_donation)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print("Failed to save donation:", str(e))  # Log the error
+        return jsonify({"error": "Failed to save donation", "details": str(e)}), 500
 
     # Create PayPal Order
     access_token = get_paypal_token()
@@ -604,23 +698,43 @@ def create_paypal_payment():
         paypal_order_id = order_data["id"]
         status = order_data["status"]
 
-        # Save transaction in the database
-        new_transaction = Transaction(
-            paypal_order_id=paypal_order_id,
-            status=status,
-            amount=amount,
-            currency=currency,
-            payer_email=payer_email,
-            donation_id=new_donation.id
-        )
-        db.session.add(new_transaction)
-        db.session.commit()
+        # Extract the approval URL
+        approve_url = None
+        for link in order_data.get("links", []):
+            if link.get("rel") == "approve":
+                approve_url = link.get("href")
+                break
 
-        return jsonify({"message": "Donation and PayPal order created", "orderID": paypal_order_id})  # Return orderID
+        if not approve_url:
+            return jsonify({"error": "Failed to retrieve PayPal approval URL"}), 500
+
+        try:
+            # Save transaction in the database
+            new_transaction = Transaction(
+                paypal_order_id=paypal_order_id,
+                status=status,
+                amount=amount,
+                currency=currency,
+                payer_email=payer_email,
+                payment_method=payment_method,  # Ensure payment_method is passed
+                donation_id=new_donation.id
+            )
+            db.session.add(new_transaction)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print("Failed to save transaction:", str(e))  # Log the error
+            return jsonify({"error": "Failed to save transaction", "details": str(e)}), 500
+
+        return jsonify({
+            "message": "Donation and PayPal order created",
+            "orderID": paypal_order_id,
+            "approve_url": approve_url  # Return the approval URL
+        })
     else:
         print("Failed to create PayPal order:", response.status_code, response.text)  # Log failure
         return jsonify({"error": "Failed to create PayPal order", "details": response.text}), 400
-
+                
 
 @app.route('/execute-paypal-payment', methods=['POST'])
 @jwt_required()
@@ -916,6 +1030,34 @@ def get_dashboard_stats():
     }), 200
 
 
+# ------------------- VOLUNTEERS -------------------
+@app.route("/api/volunteers", methods=["POST"])
+def create_volunteer():
+    data = request.get_json()
+    name = data.get("name")
+    email = data.get("email")
+    phone = data.get("phone")
+    message = data.get("message")
+
+    if not name or not email or not phone or not message:
+        return jsonify({"error": "All fields are required"}), 400
+
+    new_volunteer = Volunteer(name=name, email=email, phone=phone, message=message)
+    
+    try:
+        db.session.add(new_volunteer)
+        db.session.commit()
+        return jsonify({"message": "Thank you for signing up as a volunteer!"}), 201
+    except Exception as e:
+        return jsonify({"error": "Failed to register volunteer"}), 500
+
+@app.route("/api/volunteers", methods=["GET"])
+def get_volunteers():
+    volunteers = Volunteer.query.all()
+    return jsonify([volunteer.to_dict() for volunteer in volunteers]), 200
+
+
+
 # ------------------- ADMIN ACTIONS -------------------
 # Routes
 admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
@@ -1107,7 +1249,7 @@ def update_profile():
     return jsonify({"message": "Profile updated successfully"}), 200
 @admin_bp.route('/donation-statistics', methods=['GET', 'OPTIONS'])
 @cross_origin()
-@jwt_required()
+# @jwt_required()
 def get_donation_statistics():
     if request.method == 'OPTIONS':
         return jsonify({"message": "OK"}), 200  # Handle preflight request
@@ -1126,7 +1268,7 @@ def get_donation_statistics():
     return jsonify(statistics), 200
 # Get Current User Details
 @app.route("/user", methods=["GET"])
-@jwt_required()
+# @jwt_required()
 def get_current_user():
     current_user_email = get_jwt_identity()  # Get user email from JWT
 
@@ -1145,7 +1287,7 @@ def get_current_user():
 
 
 @admin_bp.route('/users/<int:user_id>', methods=['GET'])
-@jwt_required()
+# @jwt_required()
 def get_user(user_id):
     current_user_id = get_jwt_identity()
     user = User.query.get(current_user_id)

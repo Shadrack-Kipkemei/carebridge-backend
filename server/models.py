@@ -19,7 +19,7 @@ class User(db.Model):
     profile_picture = db.Column(db.Text)  # Store base64 encoded image or file path
     google_id = db.Column(db.String(120), unique=True, nullable=True)  # Unique and nullable
     donations = db.relationship('Donation', back_populates='donor', lazy=True, cascade='all, delete-orphan')
-    charities = db.relationship('Charity', backref='owner', lazy=True, cascade='all, delete-orphan')
+    charities = db.relationship('Charity', back_populates='owner', lazy=True, cascade='all, delete-orphan')
     notification_preferences = db.relationship('NotificationPreference', backref='user', lazy=True, cascade='all, delete-orphan', uselist=False)
 
     def set_password(self, password):
@@ -88,10 +88,10 @@ class Charity(db.Model):
     owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_approved = db.Column(db.Boolean, default=False)
-    
     donations = db.relationship('Donation', backref='charity', lazy=True)
     stories = db.relationship('Story', backref='charity', lazy=True)
     beneficiaries = db.relationship('Beneficiary', backref='charity_owner', lazy=True)
+    owner = db.relationship('User', back_populates='charities')
 
     @classmethod
     @jwt_required()
@@ -413,8 +413,11 @@ class Notification(db.Model):
 # Transaction Model
 class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    paypal_order_id = db.Column(db.String(255), nullable=False) 
     donation_id = db.Column(db.Integer, db.ForeignKey('donation.id'), nullable=False)
     amount = db.Column(db.Float, nullable=False)
+    currency = db.Column(db.String(10), nullable=False) 
+    payer_email = db.Column(db.String(120), nullable=False)
     status = db.Column(db.String(20), nullable=False)  # success, failed, pending
     payment_method = db.Column(db.String(50), nullable=False)
     transaction_reference = db.Column(db.String(255), nullable=True)
@@ -572,3 +575,22 @@ class ActivityLog(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     user = db.relationship('User', backref='activity_logs')    
+
+# Volunteer Model
+class Volunteer(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(150), nullable=False)
+    email = db.Column(db.String(150), unique=True, nullable=False)
+    phone = db.Column(db.String(20), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "email": self.email,
+            "phone": self.phone,
+            "message": self.message,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        }

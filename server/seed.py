@@ -69,6 +69,14 @@ def seed_all():
     seed_users()
     seed_charities()
     seed_fundraisers()
+    seed_categories()
+    seed_donations()
+    seed_stories()
+    seed_beneficiaries()
+    seed_notification_preferences()
+    seed_notifications()
+    seed_transactions()
+    
     print("Database seeding completed!")
 
 if __name__ == "__main__":
