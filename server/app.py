@@ -7,7 +7,7 @@ from flask_migrate import Migrate
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from server.config import Config
-from server.models import db, User, Charity, Donation, Category, Beneficiary, Story
+from server.models import db, User, Charity, Donation, Category, Fundraiser, Beneficiary, Story 
 from flask_jwt_extended import create_access_token
 from datetime import datetime
 from werkzeug.utils import secure_filename
@@ -16,7 +16,14 @@ from flask_cors import CORS, cross_origin
 from authlib.integrations.flask_client import OAuth
 from sqlalchemy.sql import func
 import base64
+from datetime import datetime, timedelta
+import requests
+from .models import Transaction
+from flask_bcrypt import Bcrypt, generate_password_hash
+from server.models import ActivityLog
+from flask import Flask
 
+fundraiser_bp = Blueprint('fundraiser', __name__)
 
 UPLOAD_FOLDER = "uploads"  # Ensure this folder exists
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
@@ -1273,6 +1280,143 @@ def update_admin_profile():
 
     db.session.commit()
     return jsonify({"message": "Admin profile updated successfully"}), 200
+
+@fundraiser_bp.route('/fundraisers', methods=['POST'])
+@jwt_required()
+def create_fundraiser():
+    """
+    Create a new fundraiser.
+    """
+    data = request.get_json()
+    current_user_id = get_jwt_identity()
+
+    # Validate required fields
+    required_fields = ["title", "description", "goal_amount", "end_date"]
+    if not all(field in data for field in required_fields):
+        return jsonify({"error": "Missing required fields"}), 400
+
+    # Validate end date
+    try:
+        end_date = datetime.fromisoformat(data["end_date"])
+        if end_date <= datetime.utcnow():
+            return jsonify({"error": "End date must be in the future"}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid date format. Use ISO format (YYYY-MM-DDTHH:MM:SS)"}), 400
+
+    # Create the fundraiser
+    fundraiser = Fundraiser(
+        title=data["title"],
+        description=data["description"],
+        goal_amount=data["goal_amount"],
+        end_date=end_date,
+        creator_id=current_user_id,
+        charity_id=data.get("charity_id")  # Optional
+    )
+
+    db.session.add(fundraiser)
+    db.session.commit()
+
+    return jsonify({
+        "message": "Fundraiser created successfully",
+        "fundraiser_id": fundraiser.id
+    }), 201
+
+@fundraiser_bp.route('/fundraisers/<int:fundraiser_id>', methods=['GET'])
+def get_fundraiser(fundraiser_id):
+    """
+    Get details of a specific fundraiser.
+    """
+    fundraiser = Fundraiser.query.get_or_404(fundraiser_id)
+    return jsonify({
+        "id": fundraiser.id,
+        "title": fundraiser.title,
+        "description": fundraiser.description,
+        "goal_amount": fundraiser.goal_amount,
+        "current_amount": fundraiser.current_amount,  # Dynamically calculated
+        "start_date": fundraiser.start_date.isoformat(),
+        "end_date": fundraiser.end_date.isoformat(),
+        "is_active": fundraiser.is_active,
+        "creator_id": fundraiser.creator_id,
+        "charity_id": fundraiser.charity_id,
+        "created_at": fundraiser.created_at.isoformat(),
+        "updated_at": fundraiser.updated_at.isoformat()
+    }), 200
+
+@fundraiser_bp.route('/fundraisers/<int:fundraiser_id>', methods=['PUT'])
+@jwt_required()
+def update_fundraiser(fundraiser_id):
+    """
+    Update an existing fundraiser.
+    """
+    fundraiser = Fundraiser.query.get_or_404(fundraiser_id)
+    current_user_id = get_jwt_identity()
+
+    # Check if the current user is the creator of the fundraiser
+    if fundraiser.creator_id != current_user_id:
+        return jsonify({"error": "Unauthorized to update this fundraiser"}), 403
+
+    data = request.get_json()
+
+    # Update fields if provided
+    if "title" in data:
+        fundraiser.title = data["title"]
+    if "description" in data:
+        fundraiser.description = data["description"]
+    if "goal_amount" in data:
+        fundraiser.goal_amount = data["goal_amount"]
+    if "end_date" in data:
+        try:
+            end_date = datetime.fromisoformat(data["end_date"])
+            if end_date <= datetime.utcnow():
+                return jsonify({"error": "End date must be in the future"}), 400
+            fundraiser.end_date = end_date
+        except ValueError:
+            return jsonify({"error": "Invalid date format. Use ISO format (YYYY-MM-DDTHH:MM:SS)"}), 400
+
+    db.session.commit()
+
+    return jsonify({
+        "message": "Fundraiser updated successfully",
+        "fundraiser_id": fundraiser.id
+    }), 200
+
+@fundraiser_bp.route('/fundraisers/<int:fundraiser_id>', methods=['DELETE'])
+@jwt_required()
+def delete_fundraiser(fundraiser_id):
+    """
+    Delete a fundraiser.
+    """
+    fundraiser = Fundraiser.query.get_or_404(fundraiser_id)
+    current_user_id = get_jwt_identity()
+
+    # Check if the current user is the creator of the fundraiser
+    if fundraiser.creator_id != current_user_id:
+        return jsonify({"error": "Unauthorized to delete this fundraiser"}), 403
+
+    db.session.delete(fundraiser)
+    db.session.commit()
+
+    return jsonify({
+        "message": "Fundraiser deleted successfully"
+    }), 200
+
+@fundraiser_bp.route('/fundraisers', methods=['GET'])
+def list_fundraisers():
+    """
+    List all active fundraisers.
+    """
+    fundraisers = Fundraiser.query.filter_by(is_active=True).all()
+    return jsonify([{
+        "id": f.id,
+        "title": f.title,
+        "description": f.description,
+        "goal_amount": f.goal_amount,
+        "current_amount": f.current_amount,  # Dynamically calculated
+        "start_date": f.start_date.isoformat(),
+        "end_date": f.end_date.isoformat(),
+        "creator_id": f.creator_id,
+        "charity_id": f.charity_id
+    } for f in fundraisers]), 200
 # Registering the Blueprint
 
 app.register_blueprint(admin_bp, url_prefix="/api/admin")
@@ -1280,4 +1424,6 @@ app.register_blueprint(admin_bp, url_prefix="/api/admin")
 # # ------------------- RUN APP -------------------
 
 if __name__ == "__main__":
-    flask_app.run(debug=True)
+    
+   flask_app = Flask(__name__)
+app.register_blueprint(fundraiser_bp)  
