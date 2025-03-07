@@ -38,7 +38,7 @@ jwt = JWTManager(app)
 migrate = Migrate(app, db)
 mail = Mail(app)
 s = URLSafeTimedSerializer("your_secret_key")  # Token generator
-CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "https://carebridge-backend-fys5.onrender.com"]}}, supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
+CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "https://care-bridge-frontend-cool-r54y.vercel.app"]}}, supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
 #cheking if upload profile location is available
 UPLOAD_FOLDER = "uploads"  # Folder to store uploaded images
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -260,6 +260,22 @@ def protected():
     return jsonify({"message": f"Hello, {user.username}!", "role": user.role}), 200
 
 # ------------------- USERS -------------------
+
+@app.route('/user', methods=['GET'])
+@jwt_required()
+def get_user_by_id():
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    return jsonify({
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "role": user.role
+    }), 200
+
 
 @app.route('/users', methods=['GET'])
 @jwt_required()  # Protect the endpoint
@@ -618,7 +634,7 @@ def create_paypal_payment():
     charity_id = data.get("charity_id") 
     payer_email = data.get("email")
     is_anonymous = data.get("is_anonymous", False)
-    donor_name = None if is_anonymous else data.get("donor_name")
+    donor_name = "Anonymous" if is_anonymous else data.get("donor_name")
     category_id = data.get("category_id")  # Ensure category_id is provided
     donation_type = data.get("donation_type")  # Ensure donation_type is provided
     payment_method = data.get("payment_method", "paypal")  # Ensure payment_method is provided
