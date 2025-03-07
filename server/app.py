@@ -262,7 +262,7 @@ def protected():
 # ------------------- USERS -------------------
 
 @app.route('/user', methods=['GET'])
-@jwt_required()
+# @jwt_required()
 def get_user_by_id():
     current_user_id = get_jwt_identity()
     user = User.query.get(current_user_id)
@@ -278,7 +278,7 @@ def get_user_by_id():
 
 
 @app.route('/users', methods=['GET'])
-@jwt_required()  # Protect the endpoint
+# @jwt_required()
 def get_users():
     try:
         # Get the email of the logged-in user
