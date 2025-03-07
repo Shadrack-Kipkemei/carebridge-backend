@@ -17,6 +17,8 @@ from authlib.integrations.flask_client import OAuth
 from sqlalchemy.sql import func
 import base64
 import requests
+from datetime import timedelta
+
 
 fundraiser_bp = Blueprint('fundraiser', __name__)
 
@@ -397,11 +399,14 @@ def delete_single_charity(charity_id):  # Renamed to avoid conflict
 @app.route('/api/charity-settings', methods=['GET'])
 @jwt_required()
 def get_charity_settings():
-    charity_id = get_jwt_identity()  # Get charity ID from JWT token
+    charity_id = get_jwt_identity()
+    print(f"Charity ID from JWT: {charity_id}")  # Debugging
     charity = Charity.query.get(charity_id)
-    if not charity:
+
+    if not charity:  # Fix syntax error here
         return jsonify({"error": "Charity not found"}), 404
-    return jsonify(charity.to_dict())
+
+    return jsonify(charity.to_dict()), 200
 
 @app.route('/api/charity-settings', methods=['PATCH'])
 @jwt_required()
