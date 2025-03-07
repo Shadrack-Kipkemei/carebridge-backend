@@ -15,6 +15,13 @@ flask-serializer = "*"
 flask-mail = "*"
 itsdangerous = "*"
 python-dotenv = "*"
+apscheduler = "*"
+flask-cors = "*"
+paypalrestsdk = "*"
+authlib = "*"
+requests = "*"
+faker = "*"
+gunicorn = "*"
 
 [dev-packages]
 

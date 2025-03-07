@@ -1,43 +1,86 @@
-from app import app
-from models import db, User, Charity, Donation, Transaction, Category, AdminAction, Message
+import os
+from faker import Faker
+from datetime import datetime, timedelta
+from server.app import app, db  # Explicitly import from server package
 
-def seed_database():
-    """Seeds the database with initial test data."""
-    with app.app_context():
-        # Reset database
-        print("🔄 Dropping existing tables...")
-        db.drop_all()
-        db.create_all()
+from models import db, User, Charity, Donation, Category, Fundraiser  # ✅ Correct
 
-        # Create an Admin User
-        admin = User(username="admin", email="admin@example.com", role="admin")
-        admin.set_password("admin123")  # Ensure User model has set_password method
+# Initialize Faker
+fake = Faker()
 
-        # Create Donor Users
-        donor1 = User(username="donor1", email="donor1@example.com", role="donor")
-        donor1.set_password("donorpass1")
+def seed_users(num_users=10):
+    for _ in range(num_users):
+        user = User(
+            username=fake.unique.user_name(),
+            email=fake.unique.email(),
+            password_hash=fake.password(),
+            role=fake.random_element(elements=("donor", "charity", "admin")),
+            google_id=fake.uuid4() if fake.boolean(chance_of_getting_true=50) else None,
+            is_active=True,
+            created_at=fake.date_time_this_year(),
+            updated_at=fake.date_time_this_year()
+        )
+        db.session.add(user)
+    db.session.commit()
+    print(f"Seeded {num_users} users.")
 
-        donor2 = User(username="donor2", email="donor2@example.com", role="donor")
-        donor2.set_password("donorpass2")
+def seed_charities(num_charities=5):
+    users = User.query.filter_by(role="charity").all()
+    if not users:
+        print("No charity users found. Please seed users first.")
+        return
 
-        # Add Users to Session
-        db.session.add_all([admin, donor1, donor2])
-        db.session.commit()
-        print("✅ Users added successfully!")
-
-        # Create a Sample Charity
-        charity = Charity(name="Hope Foundation", description="Helping children in need.", owner_id=admin.id, is_approved=True)
+    for _ in range(num_charities):
+        charity = Charity(
+            name=fake.company(),
+            description=fake.text(),
+            owner_id=fake.random_element(elements=[user.id for user in users]),
+            is_approved=fake.boolean(chance_of_getting_true=80),
+            created_at=fake.date_time_this_year()
+        )
         db.session.add(charity)
-        db.session.commit()
-        print("✅ Charity added successfully!")
+    db.session.commit()
+    print(f"Seeded {num_charities} charities.")
 
-        # Create a Sample Donation
-        donation = Donation(amount=50.00, donor_id=donor1.id, charity_id=charity.id)
-        db.session.add(donation)
-        db.session.commit()
-        print("✅ Donation added successfully!")
+def seed_fundraisers(num_fundraisers=5):
+    users = User.query.all()
+    charities = Charity.query.all()
+    
+    if not users or not charities:
+        print("Please seed users and charities first.")
+        return
+    
+    for _ in range(num_fundraisers):
+        fundraiser = Fundraiser(
+            title=fake.sentence(),
+            description=fake.text(),
+            goal_amount=fake.random_number(digits=4),
+            start_date=datetime.utcnow(),
+            end_date=datetime.utcnow() + timedelta(days=fake.random_int(min=10, max=90)),
+            is_active=fake.boolean(chance_of_getting_true=70),
+            creator_id=fake.random_element(elements=[user.id for user in users]),
+            charity_id=fake.random_element(elements=[charity.id for charity in charities])
+        )
+        db.session.add(fundraiser)
+    db.session.commit()
+    print(f"Seeded {num_fundraisers} fundraisers.")
 
-        print("🚀 Database seeding completed successfully!")
+def seed_all():
+    seed_users()
+    seed_charities()
+    seed_fundraisers()
+    seed_categories()
+    seed_donations()
+    seed_stories()
+    seed_beneficiaries()
+    seed_notification_preferences()
+    seed_notifications()
+    seed_transactions()
+    
+    print("Database seeding completed!")
 
 if __name__ == "__main__":
-    seed_database()
+    with app.app_context():
+        db.drop_all()
+        db.create_all()
+        seed_all()

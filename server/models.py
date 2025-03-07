@@ -8,21 +8,31 @@ from werkzeug.security import generate_password_hash, check_password_hash
 db = SQLAlchemy()
 # User Model
 class User(db.Model):
-    __tablename__ = "user"
-    __table_args__ = {'extend_existing': True}  # ✅ Fix duplication issue
-
+    __table_args__ = {'extend_existing': True}
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
-    role = db.Column(db.String(50), nullable=False)
-    password_hash = db.Column(db.String(128), nullable=False)
+    password_hash = db.Column(db.String(128), nullable=True)
+    role = db.Column(db.String(20), nullable=False, default="donor")  # donor, charity, admin
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_anonymous = db.Column(db.Boolean, default=False)
+    receive_reminders = db.Column(db.Boolean, default=False)
+    profile_picture = db.Column(db.Text)  # Store base64 encoded image or file path
+    google_id = db.Column(db.String(120), unique=True, nullable=True)  # Unique and nullable
+    donations = db.relationship('Donation', back_populates='donor', lazy=True, cascade='all, delete-orphan')
+    charities = db.relationship('Charity', back_populates='owner', lazy=True, cascade='all, delete-orphan')
+    notification_preferences = db.relationship('NotificationPreference', backref='user', lazy=True, cascade='all, delete-orphan', uselist=False)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
+        return bcrypt.check_password_hash(self.password_hash, password)
 
+    def generate_token(self):
+        return create_access_token(identity=self.id) 
 
     @classmethod
     def register(cls):
@@ -85,53 +95,10 @@ class Charity(db.Model):
     owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_approved = db.Column(db.Boolean, default=False)
-
-    donations = db.relationship("Donation", backref="charity", lazy="dynamic")
-    stories = db.relationship("Story", backref="charity", lazy="dynamic")
-    beneficiaries = db.relationship("Beneficiary", backref="charity", lazy="dynamic")
-
-    def get_total_donations(self):
-        """Get total donation amount for the charity"""
-        return db.session.query(func.sum(Donation.amount)).filter(Donation.charity_id == self.id).scalar() or 0
-
-    def get_total_donors(self):
-        """Get total unique donors for the charity"""
-        return db.session.query(func.count(func.distinct(Donation.donor_id))).filter(Donation.charity_id == self.id).scalar() or 0
-
-    def get_recent_donations(self, limit=5):
-        """Get recent donations for the charity"""
-        recent_donations = (
-            Donation.query.filter_by(charity_id=self.id)
-            .order_by(Donation.created_at.desc())
-            .limit(limit)
-            .all()
-        )
-
-        return [
-            {
-                "id": donation.id,
-                "amount": donation.amount,
-                "date": donation.created_at.isoformat(),
-                "donor_name": donation.donor.username if (donation.donor and not donation.is_anonymous) else "Anonymous",
-                "type": donation.donation_type,
-                "status": donation.status,
-            }
-            for donation in recent_donations
-        ]
-
-    def get_dashboard_data(self):
-        """Get comprehensive dashboard data for the charity"""
-        return {
-            "id": self.id,
-            "name": self.name,
-            "description": self.description,
-            "logo": self.logo,
-            "total_donations": self.get_total_donations(),
-            "total_donors": self.get_total_donors(),
-            "recent_donations": self.get_recent_donations(),
-            "beneficiaries_count": self.beneficiaries.count(),
-            "stories_count": self.stories.count(),
-        }
+    donations = db.relationship('Donation', backref='charity', lazy=True)
+    stories = db.relationship('Story', backref='charity', lazy=True)
+    beneficiaries = db.relationship('Beneficiary', backref='charity_owner', lazy=True)
+    owner = db.relationship('User', back_populates='charities')
 
     @classmethod
     @jwt_required()
@@ -236,6 +203,7 @@ class Charity(db.Model):
 class Donation(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     donor_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    donor_name = db.Column(db.String, nullable=False)
     charity_id = db.Column(db.Integer, db.ForeignKey('charity.id'), nullable=False)
     category_id = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=False)
     beneficiary_id = db.Column(db.Integer, db.ForeignKey('beneficiary.id'), nullable=True)
@@ -252,7 +220,8 @@ class Donation(db.Model):
     payment_method = db.Column(db.String(50), nullable=True)
     payment_token = db.Column(db.String(255), nullable=True)
     notes = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    donor = db.relationship('User', back_populates='donations')
 
     def calculate_next_donation_date(self):
         if not self.is_recurring or not self.frequency:
@@ -397,13 +366,14 @@ class Story(db.Model):
 # Beneficiary Model
 class Beneficiary(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    charity_id = db.Column(db.Integer, db.ForeignKey('charity.id'), nullable=False)
+    charity_id = db.Column(db.Integer, db.ForeignKey('charity.id', ondelete='CASCADE'), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=True)
     location = db.Column(db.String(200), nullable=True)
     needs = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
 
     @classmethod
     @jwt_required()
@@ -502,11 +472,184 @@ class Notification(db.Model):
 # Transaction Model
 class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    paypal_order_id = db.Column(db.String(255), nullable=False) 
     donation_id = db.Column(db.Integer, db.ForeignKey('donation.id'), nullable=False)
     amount = db.Column(db.Float, nullable=False)
+    currency = db.Column(db.String(10), nullable=False) 
+    payer_email = db.Column(db.String(120), nullable=False)
     status = db.Column(db.String(20), nullable=False)  # success, failed, pending
     payment_method = db.Column(db.String(50), nullable=False)
     transaction_reference = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     donation = db.relationship('Donation', backref='transactions')
+
+class Fundraiser(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    goal_amount = db.Column(db.Float, nullable=False)
+    start_date = db.Column(db.DateTime, default=datetime.utcnow)
+    end_date = db.Column(db.DateTime, nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+    creator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    charity_id = db.Column(db.Integer, db.ForeignKey('charity.id'), nullable=True)
+
+    # Relationship to Donation
+    donations = db.relationship('Donation', back_populates='fundraiser', lazy=True)
+
+    @property
+    def current_amount(self):
+        """
+        Calculate the total amount raised from donations dynamically.
+        """
+        return sum(donation.amount for donation in self.donations)
+
+    @classmethod
+    def create_fundraiser(cls):
+        """
+        Create a new fundraiser.
+        """
+        data = request.get_json()
+
+        # Validate required fields
+        required_fields = ["title", "description", "goal_amount", "end_date", "creator_id"]
+        if not all(field in data for field in required_fields):
+            return jsonify({"error": "Missing required fields"}), 400
+
+        # Validate end date
+        try:
+            end_date = datetime.fromisoformat(data["end_date"])
+            if end_date <= datetime.utcnow():
+                return jsonify({"error": "End date must be in the future"}), 400
+        except ValueError:
+            return jsonify({"error": "Invalid date format. Use ISO format (YYYY-MM-DDTHH:MM:SS)"}), 400
+
+        # Create the fundraiser
+        fundraiser = cls(
+            title=data["title"],
+            description=data["description"],
+            goal_amount=data["goal_amount"],
+            end_date=end_date,
+            creator_id=data["creator_id"],
+            charity_id=data.get("charity_id")  # Optional
+        )
+
+        db.session.add(fundraiser)
+        db.session.commit()
+
+        return jsonify({
+            "message": "Fundraiser created successfully",
+            "fundraiser_id": fundraiser.id
+        }), 201
+
+    @classmethod
+    def get_fundraiser(cls, fundraiser_id):
+        """
+        Get details of a specific fundraiser.
+        """
+        fundraiser = cls.query.get_or_404(fundraiser_id)
+        return jsonify({
+            "id": fundraiser.id,
+            "title": fundraiser.title,
+            "description": fundraiser.description,
+            "goal_amount": fundraiser.goal_amount,
+            "current_amount": fundraiser.current_amount,  # Dynamically calculated
+            "start_date": fundraiser.start_date.isoformat(),
+            "end_date": fundraiser.end_date.isoformat(),
+            "is_active": fundraiser.is_active,
+            "creator_id": fundraiser.creator_id,
+            "charity_id": fundraiser.charity_id,
+            "created_at": fundraiser.created_at.isoformat(),
+            "updated_at": fundraiser.updated_at.isoformat()
+        }), 200
+
+    @classmethod
+    def update_fundraiser(cls, fundraiser_id):
+        """
+        Update an existing fundraiser.
+        """
+        fundraiser = cls.query.get_or_404(fundraiser_id)
+        data = request.get_json()
+
+        # Update fields if provided
+        if "title" in data:
+            fundraiser.title = data["title"]
+        if "description" in data:
+            fundraiser.description = data["description"]
+        if "goal_amount" in data:
+            fundraiser.goal_amount = data["goal_amount"]
+        if "end_date" in data:
+            try:
+                end_date = datetime.fromisoformat(data["end_date"])
+                if end_date <= datetime.utcnow():
+                    return jsonify({"error": "End date must be in the future"}), 400
+                fundraiser.end_date = end_date
+            except ValueError:
+                return jsonify({"error": "Invalid date format. Use ISO format (YYYY-MM-DDTHH:MM:SS)"}), 400
+
+        db.session.commit()
+
+        return jsonify({
+            "message": "Fundraiser updated successfully",
+            "fundraiser_id": fundraiser.id
+        }), 200
+
+    @classmethod
+    def delete_fundraiser(cls, fundraiser_id):
+        """
+        Delete a fundraiser.
+        """
+        fundraiser = cls.query.get_or_404(fundraiser_id)
+        db.session.delete(fundraiser)
+        db.session.commit()
+
+        return jsonify({
+            "message": "Fundraiser deleted successfully"
+        }), 200
+
+    @classmethod
+    def list_fundraisers(cls):
+        """
+        List all active fundraisers.
+        """
+        fundraisers = cls.query.filter_by(is_active=True).all()
+        return jsonify([{
+            "id": f.id,
+            "title": f.title,
+            "description": f.description,
+            "goal_amount": f.goal_amount,
+            "current_amount": f.current_amount,  # Dynamically calculated
+            "start_date": f.start_date.isoformat(),
+            "end_date": f.end_date.isoformat(),
+            "creator_id": f.creator_id,
+            "charity_id": f.charity_id
+        } for f in fundraisers]), 200
+    
+class ActivityLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    activity_type = db.Column(db.String(50), nullable=False)  # e.g., login, donation, etc.
+    description = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', backref='activity_logs')    
+
+# Volunteer Model
+class Volunteer(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(150), nullable=False)
+    email = db.Column(db.String(150), unique=True, nullable=False)
+    phone = db.Column(db.String(20), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "email": self.email,
+            "phone": self.phone,
+            "message": self.message,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        }
