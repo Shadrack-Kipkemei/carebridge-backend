@@ -39,7 +39,7 @@ jwt = JWTManager(app)
 migrate = Migrate(app, db)
 mail = Mail(app)
 s = URLSafeTimedSerializer("your_secret_key")  # Token generator
-CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "https://care-bridge-frontend-cool-r54y.vercel.app"]}}, supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
+CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "https://care-bridge-deploy.vercel.app"]}}, supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
 #cheking if upload profile location is available
 UPLOAD_FOLDER = "uploads"  # Folder to store uploaded images
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -128,7 +128,6 @@ def home():
     return jsonify({"message": "Welcome to CareBridge API"}), 200
 
 # ------------------- AUTHENTICATION -------------------
-
 @app.route('/auth/register', methods=['POST'])
 def register():
     data = request.get_json()
@@ -140,35 +139,31 @@ def register():
     if not all(key in data for key in ["username", "email", "password", "confirmPassword", "role"]):
         return jsonify({"error": "All fields are required"}), 400
 
-
     if data["password"] != data["confirmPassword"]:
         return jsonify({"error": "Passwords do not match"}), 400
 
     existing_user = User.query.filter_by(email=data["email"]).first()
     if existing_user:
         print("Validation failed: Email already in use")  # Debug statement for existing email
-
-    # Check if email already exists
-    existing_user = User.query.filter_by(email=data["email"]).first()
-    if existing_user:
         return jsonify({"error": "Email already in use"}), 400
 
-    # Create user and hash password
     print("Creating user...")  # Debug statement for user creation
 
-    # Create user and hash password
-    user = User(
-        username=data["username"],
-        email=data["email"],
-        # password=data["password"],
-        role=data.get("role", "donor")
-    )
-    user.set_password(data["password"])
-    db.session.add(user)
-    db.session.commit()
-
-    return jsonify({"message": "User registered successfully"}), 201
-
+    try:
+        user = User(
+            username=data["username"],
+            email=data["email"],
+            role=data.get("role", "donor")
+        )
+        user.set_password(data["password"])
+        db.session.add(user)
+        db.session.commit()
+        print("User created successfully:", user.id)  # Debug statement for successful creation
+        return jsonify({"message": "User registered successfully"}), 201
+    except Exception as e:
+        print("Error creating user:", str(e))  # Debug statement for errors
+        return jsonify({"error": "Internal server error"}), 500
+        
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -263,7 +258,7 @@ def protected():
 # ------------------- USERS -------------------
 
 @app.route('/user', methods=['GET'])
-# @jwt_required()
+@jwt_required()
 def get_user_by_id():
     current_user_id = get_jwt_identity()
     user = User.query.get(current_user_id)
@@ -279,25 +274,20 @@ def get_user_by_id():
 
 
 @app.route('/users', methods=['GET'])
-# @jwt_required()
+@jwt_required()  # Ensure the user is authenticated
 def get_users():
     try:
-        # Get the email of the logged-in user
-        current_user_email = get_jwt_identity()
-        current_user = User.query.filter_by(email=current_user_email).first()
-
-        # Check if the current user exists
-        if not current_user:
-            return jsonify({"error": "Current user not found"}), 404
-
-        # Restrict access to admin users
-        if current_user.role != "admin":
-            return jsonify({"error": "Unauthorized access"}), 403
-
-        # Fetch all users
+        # Fetch all users from the database
         users = User.query.all()
+
+        # Return the list of users
         return jsonify([
-            {"id": user.id, "username": user.username, "email": user.email, "role": user.role}
+            {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "role": user.role
+            }
             for user in users
         ]), 200
 
@@ -306,13 +296,13 @@ def get_users():
         print(f"Error in /users endpoint: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
 
-
 @app.route('/users/<int:user_id>', methods=['GET'])
 def get_user(user_id):
     user = User.query.get(user_id)
     if not user:
         return jsonify({"error": "User not found"}), 404
     return jsonify({"id": user.id, "username": user.username, "email": user.email, "role": user.role}), 200
+
 
 # ------------------- CHARITIES -------------------
 
@@ -1249,7 +1239,7 @@ def update_profile():
     return jsonify({"message": "Profile updated successfully"}), 200
 @admin_bp.route('/donation-statistics', methods=['GET', 'OPTIONS'])
 @cross_origin()
-# @jwt_required()
+@jwt_required()
 def get_donation_statistics():
     if request.method == 'OPTIONS':
         return jsonify({"message": "OK"}), 200  # Handle preflight request
