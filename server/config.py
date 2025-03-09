@@ -38,7 +38,7 @@ class Config:
     # PayPal settings
     PAYPAL_CLIENT_ID = os.getenv('PAYPAL_CLIENT_ID')
     PAYPAL_CLIENT_SECRET = os.getenv('PAYPAL_CLIENT_SECRET')
-    PAYPAL_MODE = os.getenv('PAYPAL_MODE', 'sandbox') 
+    PAYPAL_BASE_URL = os.getenv("PAYPAL_BASE_URL")
 
     # Google OAuth settings
     GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "713932264803-lao9ath49ealvab0imkaltmrt61f0ofs.apps.googleusercontent.com")
@@ -47,4 +47,3 @@ class Config:
     # CORS settings
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")  # Allow all origins or specify domains
     CORS_SUPPORTS_CREDENTIALS = True  # Allow credentials for JWT in cookies
-
