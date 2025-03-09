@@ -41,7 +41,12 @@ jwt = JWTManager(app)
 migrate = Migrate(app, db)
 mail = Mail(app)
 s = URLSafeTimedSerializer("your_secret_key")  # Token generator
-CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "https://care-bridge-frontend-1.vercel.app"]}}, supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
+CORS(app, resources={r"/*": {
+    "origins": ["http://localhost:3000", "https://care-bridge-frontend-1.vercel.app"],
+    "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    "allow_headers": ["Content-Type", "Authorization"],
+    "supports_credentials": True
+}})
 #cheking if upload profile location is available
 UPLOAD_FOLDER = "uploads"  # Folder to store uploaded images
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
