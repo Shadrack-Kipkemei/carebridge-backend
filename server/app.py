@@ -42,7 +42,7 @@ migrate = Migrate(app, db)
 mail = Mail(app)
 s = URLSafeTimedSerializer("your_secret_key")  # Token generator
 CORS(app, resources={r"/*": {
-    "origins": ["http://localhost:3000", "https://care-bridge-frontend-50.vercel.app"],
+    "origins": ["http://localhost:3000", "https://care-bridge-frontend-20.vercel.app"],
     "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     "allow_headers": ["Content-Type", "Authorization"],
     "supports_credentials": True
