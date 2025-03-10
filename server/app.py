@@ -694,7 +694,7 @@ def create_paypal_payment():
         frequency = data.get("frequency")
         next_donation_date = data.get("next_donation_date")
 
-        # Save donation to database
+        # Save donation to database with status "pending"
         new_donation = Donation(
             amount=amount,
             donor_id=get_jwt_identity(),
@@ -705,7 +705,8 @@ def create_paypal_payment():
             donor_name=donor_name,
             is_recurring=is_recurring,
             frequency=frequency,
-            next_donation_date=next_donation_date
+            next_donation_date=next_donation_date,
+            status="pending"  # Set status to pending
         )
         db.session.add(new_donation)
         db.session.commit()
@@ -773,7 +774,7 @@ def create_paypal_payment():
     else:
         print("Failed to create PayPal order:", response.status_code, response.text)  # Log failure
         return jsonify({"error": "Failed to create PayPal order", "details": response.text}), 400
-                
+
 
 @app.route('/execute-paypal-payment', methods=['POST'])
 @jwt_required()
@@ -794,16 +795,19 @@ def execute_paypal_payment():
         capture_data = response.json()
         status = capture_data["status"]
 
-        # Update transaction status in the database
+        # Update transaction and donation status in the database
         transaction = Transaction.query.filter_by(paypal_order_id=order_id).first()
         if transaction:
             transaction.status = status
+            donation = Donation.query.get(transaction.donation_id)
+            if donation:
+                donation.status = "completed"  # Update donation status to completed
             db.session.commit()
 
         return jsonify({"message": "Payment captured successfully", "details": capture_data})
     else:
         return jsonify({"error": "Failed to capture payment", "details": response.text}), 400
-
+        
 
 @app.route('/api/withdraw', methods=['POST'])
 @jwt_required()
