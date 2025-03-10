@@ -42,7 +42,7 @@ migrate = Migrate(app, db)
 mail = Mail(app)
 s = URLSafeTimedSerializer("your_secret_key")  # Token generator
 CORS(app, resources={r"/*": {
-    "origins": ["http://localhost:3000", "https://care-bridge-frontend-20.vercel.app"],
+    "origins": ["http://localhost:3000", "https://care-bridge-frontend-200.vercel.app"],
     "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     "allow_headers": ["Content-Type", "Authorization"],
     "supports_credentials": True
@@ -229,7 +229,7 @@ def reset_password(token):
 
     # Redirect GET requests to frontend reset page
     if request.method == "GET":
-        frontend_url = f"http://localhost:3000/reset-password/{token}"  # Update with your frontend URL
+        frontend_url = f"https://care-bridge-frontend-200.vercel.app/reset-password/{token}"  # Update with your frontend URL
         return redirect(frontend_url)
 
     # Handle password reset on POST request
